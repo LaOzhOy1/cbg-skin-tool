@@ -1,0 +1,82 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>藏宝阁监控 · 永劫无间</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<link rel="stylesheet" href="styles.css" />
+</head>
+<body class="bg-canvas text-ink-100 antialiased">
+
+<div class="flex min-h-screen">
+  <!-- 左侧导航 -->
+  <aside class="w-56 shrink-0 border-r border-line px-6 py-8 flex flex-col gap-10">
+    <div class="flex items-center gap-3">
+      <div class="deco-mark"></div>
+      <div>
+        <p class="text-sm tracking-[0.2em] text-ink-400 uppercase">CBG Monitor</p>
+        <p class="text-base font-medium text-ink-100">藏宝阁监控</p>
+      </div>
+    </div>
+
+    <nav class="flex flex-col gap-1" id="nav">
+      <button data-filter="all" class="nav-item nav-item-active">全部</button>
+      <button data-filter="英雄皮肤" class="nav-item">英雄皮肤</button>
+      <button data-filter="兵器皮肤" class="nav-item">兵器皮肤</button>
+    </nav>
+
+    <div class="mt-auto text-xs text-ink-500 leading-relaxed">
+      <p>轮询拉取藏宝阁公开接口数据，仅供查看。</p>
+      <p>不做任何自动点击购买或验证码破解。</p>
+    </div>
+  </aside>
+
+  <!-- 主体 -->
+  <main class="flex-1 flex flex-col">
+    <!-- 顶部状态栏 -->
+    <header class="flex items-center justify-between px-10 py-6 border-b border-line">
+      <div>
+        <h1 class="text-lg font-medium text-ink-100" id="page-title">全部在售商品</h1>
+        <p class="text-sm text-ink-400 mt-1" id="page-subtitle">英雄皮肤 · 兵器皮肤</p>
+      </div>
+
+      <div class="status-panel">
+        <div class="flex items-center gap-2">
+          <span class="status-dot" id="status-dot"></span>
+          <span class="text-sm text-ink-200" id="status-text">加载中</span>
+        </div>
+        <div class="text-xs text-ink-500 mt-1" id="status-meta">—</div>
+      </div>
+    </header>
+
+    <!-- 商品列表 -->
+    <section class="flex-1 px-10 py-8 overflow-y-auto">
+      <div id="loading" class="loading-line" aria-hidden="true">
+        <span></span><span></span><span></span>
+      </div>
+
+      <div id="empty" class="hidden text-ink-400 text-sm mt-20 text-center">暂无数据</div>
+
+      <div id="grid" class="grid gap-5" style="grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));"></div>
+    </section>
+  </main>
+</div>
+
+<!-- 验证提醒弹窗 -->
+<div id="verify-overlay" class="verify-overlay hidden">
+  <div class="verify-modal">
+    <div class="deco-line"></div>
+    <h2 class="text-lg font-medium text-ink-100 mt-4">需要人工完成安全验证</h2>
+    <p class="text-sm text-ink-400 mt-2 leading-relaxed">
+      藏宝阁检测到风控验证，需要你在弹出的浏览器窗口中手动完成"依次点击"验证。
+      工具不会自动识别或代替你点击验证码。
+    </p>
+    <button id="verify-btn" class="verify-btn mt-6">打开验证窗口</button>
+    <p id="verify-hint" class="text-xs text-ink-500 mt-3 hidden">等待人工完成验证...</p>
+  </div>
+</div>
+
+<script src="app.js"></script>
+</body>
+</html>
