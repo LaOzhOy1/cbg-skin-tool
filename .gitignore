@@ -2,3 +2,4 @@ node_modules/
 storageState.json
 skins.json
 *.log
+data/

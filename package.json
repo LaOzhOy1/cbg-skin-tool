@@ -4,9 +4,16 @@
   "private": true,
   "type": "module",
   "description": "永劫无间藏宝阁 - 英雄皮肤/兵器皮肤在售监控面板",
+  "bin": {
+    "cbg-skin": "bin/cbg-skin.js"
+  },
   "scripts": {
+    "cli": "node bin/cbg-skin.js",
+    "doctor": "node bin/cbg-skin.js doctor",
     "login": "node src/login.js",
-    "start": "node server/index.js"
+    "watch-browser": "node tools/watchBrowser.js",
+    "start": "node server/index.js",
+    "test": "node --test"
   },
   "dependencies": {
     "express": "^4.21.2",

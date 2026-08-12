@@ -1,0 +1,75 @@
+/* 需求管理后台专用的少量自定义样式，复用 styles.css 里已经定义的配色变量。 */
+
+.admin-input {
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 0.6rem;
+  padding: 0.5rem 0.75rem;
+  color: var(--ink-100);
+  font-size: 0.875rem;
+}
+.admin-input::placeholder { color: var(--ink-500); }
+.admin-input:focus { outline: none; border-color: var(--accent-blue); }
+
+.admin-panel {
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid var(--line);
+  border-radius: 0.75rem;
+  padding: 0.9rem 1rem;
+}
+.admin-panel.border-rose { border-color: var(--accent-rose); }
+
+.admin-badge {
+  font-size: 0.7rem;
+  padding: 0.15rem 0.6rem;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.06);
+  color: var(--ink-400);
+  letter-spacing: 0.03em;
+}
+.admin-badge.ok { color: var(--accent-green); }
+.admin-badge.warn { color: var(--accent-warm); }
+.admin-badge.error { color: var(--accent-rose); }
+
+.requirement-item {
+  display: block;
+  width: 100%;
+  text-align: left;
+  padding: 0.6rem 0.75rem;
+  border-radius: 0.6rem;
+  border: 1px solid transparent;
+  color: var(--ink-400);
+  font-size: 0.8rem;
+  transition: background-color 0.2s ease, color 0.2s ease, border-color 0.2s ease;
+}
+.requirement-item:hover { background: var(--surface); color: var(--ink-200); }
+.requirement-item.active {
+  background: var(--surface-2);
+  color: var(--ink-100);
+  border-color: var(--line);
+}
+.requirement-item .title { display: block; color: inherit; margin-bottom: 0.2rem; }
+
+.plan-step {
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid var(--line);
+  border-radius: 0.6rem;
+  padding: 0.6rem 0.8rem;
+  font-size: 0.8rem;
+  color: var(--ink-200);
+}
+.plan-step .cap-name { color: var(--accent-blue); font-family: monospace; font-size: 0.75rem; }
+
+#chat-history {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+.chat-turn {
+  border-radius: 0.6rem;
+  padding: 0.5rem 0.75rem;
+  font-size: 0.825rem;
+  max-width: 85%;
+}
+.chat-turn.admin { align-self: flex-end; background: var(--surface-2); color: var(--ink-100); }
+.chat-turn.ai { align-self: flex-start; background: rgba(255,255,255,0.03); color: var(--ink-300, var(--ink-200)); border: 1px solid var(--line); }

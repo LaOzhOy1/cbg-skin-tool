@@ -20,6 +20,46 @@ npx playwright install chromium
 
 ## 使用
 
+### CLI（推荐）
+
+项目内置 `cbg-skin` CLI。无需全局安装即可使用：
+
+```bash
+npm run cli -- help
+```
+
+如果希望直接使用 `cbg-skin` 命令，可以在项目目录执行一次 `npm link`。
+
+| 命令 | 能力 |
+| --- | --- |
+| `cbg-skin start` | 启动本地监控服务和网页面板，可设置监听地址、端口、轮询间隔 |
+| `cbg-skin login` | 打开可见 Chromium，人工登录并保存登录态 |
+| `cbg-skin doctor` | 纯本地检查 Node、依赖、Chromium 和登录态，不访问藏宝阁 |
+| `cbg-skin status` | 查看服务状态、商品数、更新时间、下次轮询和错误信息 |
+| `cbg-skin items` | 列出当前商品，支持英雄/兵器分类、数量限制和 JSON 输出 |
+| `cbg-skin verify` | 请求运行中的服务打开人工登录/安全验证窗口 |
+| `cbg-skin help` | 列出所有命令、选项和示例 |
+
+常用示例：
+
+```bash
+# 检查本机是否具备运行条件
+npm run cli -- doctor
+
+# 仅监听本机，端口 4173，每 20 秒轮询
+npm run cli -- start --host 127.0.0.1 --port 4173 --interval 20000
+
+# 查看状态或列出前 10 件英雄皮肤
+npm run cli -- status
+npm run cli -- items --category hero --limit 10
+
+# 方便脚本处理的 JSON 输出
+npm run cli -- status --json
+npm run cli -- items --category weapon --limit 50 --json
+```
+
+每个命令都支持 `--help`，例如 `npm run cli -- items --help`。
+
 ### 1. 首次登录
 
 ```bash
@@ -34,7 +74,7 @@ npm run login
 npm start
 ```
 
-终端会打印本地地址（默认 `http://localhost:4173`），用浏览器打开即可看到监控界面。
+终端会打印本地地址（默认 `http://127.0.0.1:4173`），用浏览器打开即可看到监控界面。
 
 ### 3. 页面里的验证提醒
 
@@ -61,10 +101,32 @@ npm start
 - 全流程"从触发验证码 → 打开验证窗口 → 人工完成 → 自动恢复轮询 → 页面看到真实数据"这条完整链路，还没能在一次干净的环境下走通到底。
 - 页面在浏览器里的真实视觉效果（截图看起来正常，但建议你自己打开跑一遍确认字体、间距、动画细节符合预期）。
 
+## 需求管理后台（`/admin`，实验性功能）
+
+在监控面板之上新增了一套 AI 编排需求的管理系统：管理员在网页上用一句话提交需求，AI（DeepSeek）把需求拆解成一份只由「已登记能力」组合而成的执行计划，确认后异步执行、状态机跟踪，完成后可以让 AI 把这次的做法总结成经验模板供以后参考。
+
+使用前需要设置环境变量：
+
+```bash
+export DEEPSEEK_API_KEY=你的key
+# 可选，有默认值：
+# export DEEPSEEK_BASE_URL=https://api.deepseek.com
+# export DEEPSEEK_MODEL=deepseek-chat
+```
+
+启动服务后访问 `http://127.0.0.1:4173/admin`。
+
+**当前边界（重要）**：
+- 这一版只登记了 1 条能力——查询本地已缓存的在售商品，用来验证整套"提需求 → AI 出计划 → 确认 → 执行 → 总结"的骨架是通的。**还没有接入真实下单能力**。
+- 这个页面**没有登录鉴权**，和监控面板一样靠只监听 `127.0.0.1` 保证安全。不要把 `HOST` 改成 `0.0.0.0` 对外暴露，除非先给它加上访问控制。
+- 未来接入下单能力时，依然遵守本项目的核心边界：可以自动校验商品是否在售、自动生成订单，但**支付本身必须由你本人完成**，不会自动填支付密码或验证码。
+
 ## 项目结构
 
 ```
 cbg-skin-tool/
+  bin/
+    cbg-skin.js      # 统一 CLI：启动、登录、诊断、状态、商品列表、人工验证
   server/
     index.js       # Express 入口：托管前端静态文件，挂载 API，启动轮询
     state.js        # 内存态：商品快照、轮询状态、验证流程状态
@@ -72,13 +134,18 @@ cbg-skin-tool/
     cbgClient.js       # 纯 HTTP 版接口调用，识别 CAPTCHA_AUTH / AUTO_LOGIN / MOBILE_AUTH
     poller.js           # 定时轮询循环（默认 20 秒 ±20% 随机抖动）
     loginFlow.js          # 打开可见浏览器，等待人工登录/过验证码，保存登录态
+    admin/                  # 需求管理后台：状态机、任务队列、能力注册表、DeepSeek 客户端
   public/
     index.html            # 页面结构：左侧导航、商品卡片网格、右上状态面板、验证弹窗
     app.js                 # 前端逻辑：轮询状态/数据、渲染卡片、验证弹窗交互
     styles.css              # 莫兰迪暗色配色、磨砂玻璃卡片、悬浮动画等自定义样式
+    admin.html / admin.js / admin.css  # 需求管理后台页面
   src/
     session.js              # 登录态文件路径、isLoggedIn() 检测（登录流程复用）
     login.js                  # CLI 版首次登录脚本
     config.js                  # 分类 kindid/search_type 配置
+  test/
+    cli.test.js                # CLI 帮助、参数校验和环境诊断测试
+  data/                          # 需求管理后台的 JSON 持久化文件（不提交到版本库）
   storageState.json          # 登录态（不提交到版本库）
 ```

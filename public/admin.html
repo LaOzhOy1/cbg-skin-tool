@@ -1,0 +1,80 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>需求管理后台 · 藏宝阁监控</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<link rel="stylesheet" href="styles.css" />
+<link rel="stylesheet" href="admin.css" />
+</head>
+<body class="bg-canvas text-ink-100 antialiased">
+
+<div class="flex min-h-screen">
+  <!-- 左侧：需求列表 -->
+  <aside class="w-80 shrink-0 border-r border-line px-6 py-8 flex flex-col gap-6">
+    <div class="flex items-center gap-3">
+      <div class="deco-mark"></div>
+      <div>
+        <p class="text-sm tracking-[0.2em] text-ink-400 uppercase">Admin</p>
+        <p class="text-base font-medium text-ink-100">需求管理</p>
+      </div>
+    </div>
+
+    <form id="create-form" class="flex flex-col gap-2">
+      <textarea id="create-text" class="admin-input" rows="3" placeholder="用一句话描述需求，例如：帮我看看当前在售的英雄皮肤，列出前 5 个"></textarea>
+      <button type="submit" class="verify-btn">提交需求</button>
+    </form>
+
+    <div class="text-xs text-ink-500 uppercase tracking-wider">需求列表</div>
+    <div id="requirement-list" class="flex-1 overflow-y-auto flex flex-col gap-2"></div>
+
+    <a href="/" class="text-xs text-ink-500 hover:text-ink-200">← 返回监控面板</a>
+  </aside>
+
+  <!-- 主体：需求详情 -->
+  <main class="flex-1 flex flex-col overflow-y-auto">
+    <div id="empty-detail" class="flex-1 flex items-center justify-center text-ink-500 text-sm">
+      选择左侧一个需求查看详情，或提交一个新需求
+    </div>
+
+    <div id="detail" class="hidden flex-1 px-10 py-8 flex flex-col gap-6 max-w-3xl">
+      <div>
+        <div class="flex items-center gap-3">
+          <h1 id="detail-title" class="text-lg font-medium text-ink-100"></h1>
+          <span id="detail-status" class="admin-badge"></span>
+        </div>
+        <p id="detail-rawtext" class="text-sm text-ink-400 mt-2 leading-relaxed"></p>
+      </div>
+
+      <section>
+        <h2 class="text-sm text-ink-400 uppercase tracking-wider mb-2">执行计划</h2>
+        <div id="plan-reject" class="hidden admin-panel border-rose"></div>
+        <ol id="plan-steps" class="flex flex-col gap-2"></ol>
+        <div class="flex gap-2 mt-3">
+          <button id="confirm-btn" class="verify-btn hidden" style="width:auto; padding: 0.5rem 1.2rem;">确认计划</button>
+          <button id="summarize-btn" class="verify-btn hidden" style="width:auto; padding: 0.5rem 1.2rem;">总结经验</button>
+        </div>
+      </section>
+
+      <section>
+        <h2 class="text-sm text-ink-400 uppercase tracking-wider mb-2">和 AI 讨论计划</h2>
+        <div id="chat-history" class="flex flex-col gap-2 mb-3"></div>
+        <form id="chat-form" class="flex gap-2">
+          <input id="chat-input" class="admin-input flex-1" placeholder="向 AI 说明需要调整的地方..." />
+          <button type="submit" class="verify-btn" style="width:auto; padding: 0.5rem 1.2rem;">发送</button>
+        </form>
+        <p id="chat-hint" class="text-xs text-ink-500 mt-2 hidden"></p>
+      </section>
+
+      <section>
+        <h2 class="text-sm text-ink-400 uppercase tracking-wider mb-2">执行状态</h2>
+        <div id="task-panel" class="admin-panel text-sm text-ink-400"></div>
+      </section>
+    </div>
+  </main>
+</div>
+
+<script src="admin.js"></script>
+</body>
+</html>
