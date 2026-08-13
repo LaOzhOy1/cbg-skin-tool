@@ -7,6 +7,7 @@ import { Router } from 'express';
 import { list, get, insert, update } from './store.js';
 import { assertTransition } from './stateMachine.js';
 import { generatePlan, revisePlan, summarizeTask, LlmNotConfiguredError } from './llm.js';
+import { getActiveAccount } from './accounts.js';
 
 const router = Router();
 
@@ -60,6 +61,10 @@ router.post('/requirements', (req, res) => {
     title: title || rawText.slice(0, 30),
     rawText,
     status: 'draft',
+    // 记录创建时的活跃账号，用于展示"这条需求是在哪个账号下提出的"——这一轮不需要
+    // 执行时校验，因为现有能力（list_onsale_items）直接读 state.js 的全局快照，
+    // 快照本来就只代表活跃账号，天然不会读错账号的数据。
+    accountId: getActiveAccount()?.id || null,
     planId: null,
     taskId: null,
   });

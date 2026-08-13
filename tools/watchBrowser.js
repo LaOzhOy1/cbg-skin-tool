@@ -31,14 +31,34 @@ function attachListeners(page, label) {
   page.on('request', (req) => {
     const type = req.resourceType();
     if (type !== 'xhr' && type !== 'fetch') return;
-    log(`${label} [接口请求] ${req.method()} ${req.url()}`);
+    // postData() 只是读取浏览器已经构造好、即将发出的请求体，不会额外触发任何网络请求，
+    // 依然是纯被动监听。用于抓下单接口（preview_order/add_order 等）的真实请求体格式。
+    const body = req.postData();
+    log(`${label} [接口请求] ${req.method()} ${req.url()}${body ? `\n  body: ${body}` : ''}`);
   });
 
   page.on('response', async (res) => {
     const req = res.request();
     const type = req.resourceType();
     if (type !== 'xhr' && type !== 'fetch') return;
-    log(`${label} [接口响应] ${res.status()} ${req.method()} ${res.url()}`);
+    const url = res.url();
+    // 只对商品列表/详情这几个接口记录响应体，用来核对公示期相关字段的真实名称；
+    // 其余接口（广告配置等）只记状态码，避免日志被无关的大响应体淹没。
+    // res.text() 读取的是浏览器已经收到的响应内容，不会触发任何新请求。
+    const shouldCaptureBody =
+      /recommend\.py|get_equip_detail|get_aggregate_equip_type_list|add_order|get_order_pay_info|check_order_pay_result/.test(
+        url
+      );
+    let bodySuffix = '';
+    if (shouldCaptureBody) {
+      try {
+        const text = await res.text();
+        bodySuffix = `\n  response: ${text.slice(0, 4000)}`;
+      } catch {
+        // 响应体读取失败（比如已经被消费或连接中断），不影响其余日志记录
+      }
+    }
+    log(`${label} [接口响应] ${res.status()} ${req.method()} ${url}${bodySuffix}`);
   });
 
   page.on('close', () => log(`${label} [标签页关闭]`));

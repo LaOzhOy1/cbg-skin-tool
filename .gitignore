@@ -3,3 +3,4 @@ storageState.json
 skins.json
 *.log
 data/
+.env

@@ -77,4 +77,13 @@ export function update(collection, id, patch) {
   return records[index];
 }
 
+/** 按 id 删除记录，找不到时抛错。 */
+export function remove(collection, id) {
+  const records = load(collection);
+  const index = records.findIndex((r) => r.id === id);
+  if (index === -1) throw new Error(`${collection} 里找不到 id=${id} 的记录`);
+  records.splice(index, 1);
+  persist(collection);
+}
+
 export const COLLECTION_NAMES = COLLECTIONS;

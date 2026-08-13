@@ -142,6 +142,64 @@
 
 `tools/watchBrowser.js` 一开始只监听了初始的单个 `page`，漏掉了藏宝阁很多商品链接用 `target="_blank"` 新开标签页的情况（点商品详情时完全没被记录）。已修复：现在监听 `context.on('page', ...)` 事件，为每个新标签页单独挂监听并打上 `[标签页#N]` 前缀区分。修复时注意到一个坑：`context.on('page')` 对 `context.newPage()` 创建的初始页面也会触发一次，如果同时手动给初始 page 挂一遍监听会导致每条日志重复打印两次——所以初始页面完全交给 `context.on('page')` 事件来挂监听，不要重复挂。
 
+## 工具说明：记录 POST 请求体（2026-08-13）
+
+`page.on('request', ...)` 原来只记录了 `method` 和 `url`，看不到 POST 请求的具体请求体内容。已升级：用 Playwright 的 `request.postData()` 读取请求体一并记录。这个方法只是读取浏览器已经构造好、即将发出的请求内容，不会额外触发任何网络请求，依然是纯被动监听，符合 CLAUDE.md 里的铁律。
+
+## 工具说明：记录响应体（2026-08-13）
+
+`page.on('response', ...)` 原来只记录状态码，看不到响应体内容。已升级：对 `recommend.py`/`get_equip_detail`/`get_aggregate_equip_type_list`/`add_order`/`get_order_pay_info`/`check_order_pay_result` 这几个接口额外读取 `res.text()` 并记录（截断到 4000 字符，避免日志过大），其余接口（广告配置等无关请求）仍然只记状态码。`res.text()` 读取的是浏览器已经收到的响应内容，不会触发任何新请求，依然是纯被动监听。
+
+## 公示期判断：`allow_fair_show_buy`（2026-08-13，已确认，但有混杂因素）
+
+藏宝阁商品发起交易后有一段强制公示期，期间不能真正下单购买。抓包过程走过两轮：
+
+1. **第一轮推测（已证实错误）**：以为 `fair_show_end_time`（列表/详情接口都有的时间戳字段）晚于当前时间就代表仍在公示期。抓到的样本推翻了这个推测——`fair_show_end_time` 已经过去（如 `2026-08-03`），但商品依然不可购买。
+2. **第二轮确认**：`get_equip_detail` 响应体里有一个直接的布尔字段 `allow_fair_show_buy`，抓到的 5 个样本全是 `false`，同时还有一个 `equip_lock_time_desc`（锁定截止时间，测试期间数值一直在变化）。**这个字段只存在于详情接口 `get_equip_detail`，不存在于列表接口 `recommend.py`**——意味着扫货引擎不能只靠轮询缓存判断公示期，必须在下单前调用详情接口二次确认（已在 `server/cbgClient.js` 实现为 `fetchEquipDetail()`，`server/admin/sweepEngine.js` 的 `tryPlaceOrder()` 在下单前会调用它）。
+
+**⚠️ 未消除的混杂因素**：抓包时账号正好显示"游戏在维护中"，5 个样本的 `allow_fair_show_buy` 全部是 `false`——不能排除这是维护期间全站商品都不可购买导致的，而不是这件商品真的处于公示期。等游戏维护结束后应该重新抓一次，确认正常状态下这个字段的取值分布（应该既有 `true` 也有 `false` 的样本）。
+
+`normalizeItem()` 不再提取 `fair_show_end_time`（已确认对判断公示期没用），公示期判断完全依赖 `fetchEquipDetail()` 的实时查询。
+
+## 星格/变异筛选参数（2026-08-13，已确认请求参数，未确认命中样本）
+
+藏宝阁商品列表页有一个"星格"筛选面板（选星级 1/2/3 星，填 1-4 个星格数值范围）。抓包确认的真实请求参数：
+
+| 参数名 | 对应 UI | 备注 |
+| --- | --- | --- |
+| `variation_unlock_num` | 星级按钮（1星/2星/3星） | 测试值 1/2/3 |
+| `variation_first` | 星格1 输入框 | 测试值 999/990/8999 |
+| `variation_second` | 星格2 输入框 | 未测试过非空值 |
+| `variation_third` | 星格3 输入框 | 未测试过非空值 |
+| `variation_fourth` | 星格4 输入框（截图里没显示，但参数名存在） | 未测试过非空值 |
+| `variation_unlock_level` | 未知，可能是另一个筛选维度 | 未测试过非空值 |
+
+**未确认的部分**：三次测试组合的筛选条件下，`recommend.py` 返回的 `result` 全部是空数组（0 命中），没能抓到一件真正命中筛选条件的商品——所以完全不知道命中后单个商品对象上，对应的星格数值字段叫什么、`variation_info`（目前抓到的样本一直是空对象 `{}`）在有实际内容时是什么结构。
+
+**采用的实现策略**：不在本地做任何数值解释或二次过滤，`server/cbgClient.js` 的 `searchItemsWithVariationFilter()` 只是把用户填的参数原样转发给藏宝阁，让藏宝阁自己的过滤逻辑决定结果。这样即使对参数语义的理解有偏差，也不会构造出畸形请求——最坏情况是筛选结果为空或不够精确，不存在下单风险。`server/admin/sweepEngine.js` 里只有配置了 `variationFilter` 的扫货任务才会走这条路径，会对每轮 tick 产生一次真实网络请求（其余任务继续保持零请求，只读轮询缓存）。
+
+## 下单成功后的响应体格式（2026-08-13，第三轮抓包已确认，下单能力已接入）
+
+`preview_order`/`add_order` 的**请求体**格式（三次独立抓包结果一致）：
+
+```
+serverid={服务器ID}&ordersn={订单号}&roleid={买家角色ID}&buyer_serverid={买家服务器ID}&confirm_price_total={确认总价，单位分}&view_loc=hag_msg&exter=direct&page_session_id=...&traffic_trace=...
+```
+
+`add_order` 的请求体和第二次 `preview_order`（带完整信息那次）完全一样，说明下单前必须先调一次带完整信息的 `preview_order` 确认，不能跳过直接调 `add_order`。`roleid`/`buyer_serverid` 用环境变量 `SWEEP_BUYER_ROLE_ID`/`SWEEP_BUYER_SERVER_ID` 固定配置，不做角色列表查询。
+
+**`add_order` 成功后的响应体**（游戏维护结束后重新抓包，流程顺畅走完，没有触发验证码）：
+
+```json
+{"status": 1, "status_code": "OK", "order": {"poundage_tip": "", "has_old_order": false, "is_cross_buy_order": false, "orderid_to_epay": "2_23690157", "price_total": 245000}, "_request_id": "..."}
+```
+
+`order.orderid_to_epay` **已经是完整的 `"serverId_订单号"` 格式**（例：`"2_23690157"`），可以直接传给 `check_order_pay_result` 的 `orderid_to_epay_list` 参数，不需要再拆分/拼接。之前设计时以为要分开存 `serverId` 和 `epayOrderId` 两个字段再拼接，这个假设被证明是多余的，`server/sweepClient.js` 的 `placeOrder()` 和 `checkPaymentResult()` 已经改成直接传递这个完整字符串。
+
+紧跟着调用的 `get_order_pay_info` 响应体里还有一个 `epay_orderid_list`（例：`["2026081311JY41800001044718522"]`），这是网易支付网关自己用的订单号（收银台 URL 里那个），和 `orderid_to_epay` 是两个不同的编号体系——扫货任务只需要 `orderid_to_epay` 去查支付状态，不需要这个。
+
+**仍未确认的部分**：`check_order_pay_result` 返回的具体支付状态字段名。抓包时故意没有真的扫码付款（避免真实扣款），所以没有拿到"已支付"状态下的真实响应体样本。`server/sweepClient.js` 的 `checkPaymentResult()` 判定"已支付"时依然保守——拿不准就返回 `paid: false`，宁可多等一轮重新查，不会误判成已支付导致计数错误。
+
 ## 人工浏览记录（持续补充）
 
 <!-- 在这里追加新记录，格式参考上面的表格，不要删除已有条目 -->

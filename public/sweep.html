@@ -1,0 +1,150 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>扫货任务 · 藏宝阁监控</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<link rel="stylesheet" href="styles.css" />
+<link rel="stylesheet" href="admin.css" />
+</head>
+<body class="bg-canvas text-ink-100 antialiased">
+
+<div class="flex min-h-screen">
+  <!-- 左侧：模板表单 + 任务列表 -->
+  <aside class="w-96 shrink-0 border-r border-line px-6 py-8 flex flex-col gap-6 overflow-y-auto">
+    <div class="flex items-center gap-3">
+      <div class="deco-mark"></div>
+      <div>
+        <p class="text-sm tracking-[0.2em] text-ink-400 uppercase">Sweep</p>
+        <p class="text-base font-medium text-ink-100">扫货任务</p>
+      </div>
+    </div>
+
+    <p class="text-xs text-ink-500 leading-relaxed">
+      填好下面几项就会立即开始监控，命中价格条件会自动下单。支付必须由你本人在藏宝阁完成，工具不会代为付款。
+    </p>
+
+    <form id="create-form" class="flex flex-col gap-3">
+      <label class="flex flex-col gap-1">
+        <span class="text-xs text-ink-500">分类</span>
+        <select id="field-category" class="admin-input">
+          <option value="hero">英雄皮肤</option>
+          <option value="weapon">兵器皮肤</option>
+        </select>
+      </label>
+      <label class="flex flex-col gap-1">
+        <span class="text-xs text-ink-500">商品名称</span>
+        <input id="field-item-name" class="admin-input" list="field-item-name-options" placeholder="选择当前在售商品，或手动输入名称" required autocomplete="off" />
+        <datalist id="field-item-name-options"></datalist>
+        <span id="item-name-hint" class="text-xs text-ink-500"></span>
+      </label>
+      <label class="flex flex-col gap-1">
+        <span class="text-xs text-ink-500">价格上限（元，命中价格需低于或等于此值）</span>
+        <input id="field-price" class="admin-input" type="number" min="0.01" step="0.01" placeholder="800" required />
+      </label>
+      <label class="flex flex-col gap-1">
+        <span class="text-xs text-ink-500">目标数量</span>
+        <input id="field-quantity" class="admin-input" type="number" min="1" step="1" placeholder="10" required />
+      </label>
+      <label class="flex flex-col gap-1">
+        <span class="text-xs text-ink-500">期限（天）</span>
+        <input id="field-duration" class="admin-input" type="number" min="1" step="1" placeholder="7" required />
+      </label>
+
+      <details class="text-xs text-ink-400">
+        <summary class="cursor-pointer text-ink-500">星格筛选（可选，留空则不启用）</summary>
+        <p class="text-ink-500 mt-2 mb-2 leading-relaxed">
+          启用后每轮监控会直接向藏宝阁发一次实时查询（不再只读本地缓存），换来能筛选星格这种缓存里没有的信息。
+        </p>
+        <div class="flex flex-col gap-2">
+          <label class="flex flex-col gap-1">
+            <span>星级</span>
+            <select id="field-star-level" class="admin-input">
+              <option value="">不限</option>
+              <option value="1">1星</option>
+              <option value="2">2星</option>
+              <option value="3">3星</option>
+            </select>
+          </label>
+          <label class="flex flex-col gap-1">
+            <span>星格1</span>
+            <input id="field-slot1" class="admin-input" type="number" placeholder="1-10000" />
+          </label>
+          <label class="flex flex-col gap-1">
+            <span>星格2</span>
+            <input id="field-slot2" class="admin-input" type="number" placeholder="1-10000" />
+          </label>
+          <label class="flex flex-col gap-1">
+            <span>星格3</span>
+            <input id="field-slot3" class="admin-input" type="number" placeholder="1-10000" />
+          </label>
+          <label class="flex flex-col gap-1">
+            <span>星格4</span>
+            <input id="field-slot4" class="admin-input" type="number" placeholder="1-10000" />
+          </label>
+        </div>
+      </details>
+
+      <button type="submit" class="verify-btn">开始扫货</button>
+      <p id="create-error" class="text-xs text-accent-rose hidden"></p>
+    </form>
+
+    <div class="text-xs text-ink-500 uppercase tracking-wider">任务列表</div>
+    <div id="task-list" class="flex-1 overflow-y-auto flex flex-col gap-2"></div>
+
+    <a href="/admin" class="text-xs text-ink-500 hover:text-ink-200">← 需求管理</a>
+    <a href="/accounts" class="text-xs text-ink-500 hover:text-ink-200">→ 账号管理</a>
+    <a href="/" class="text-xs text-ink-500 hover:text-ink-200">← 返回监控面板</a>
+  </aside>
+
+  <!-- 主体：任务详情 -->
+  <main class="flex-1 flex flex-col overflow-y-auto">
+    <div id="empty-detail" class="flex-1 flex items-center justify-center text-ink-500 text-sm">
+      填写左侧模板开始一个扫货任务，或选择列表里已有的任务查看详情
+    </div>
+
+    <div id="detail" class="hidden flex-1 px-10 py-8 flex flex-col gap-6 max-w-3xl">
+      <div>
+        <div class="flex items-center gap-3">
+          <h1 id="detail-title" class="text-lg font-medium text-ink-100"></h1>
+          <span id="detail-status" class="admin-badge"></span>
+        </div>
+        <p id="detail-desc" class="text-sm text-ink-400 mt-2"></p>
+      </div>
+
+      <div class="flex gap-3">
+        <div class="stat-tile">
+          <div class="label">已购 / 目标</div>
+          <div class="value" id="stat-progress">—</div>
+        </div>
+        <div class="stat-tile">
+          <div class="label">价格上限</div>
+          <div class="value" id="stat-price">—</div>
+        </div>
+        <div class="stat-tile">
+          <div class="label">截止时间</div>
+          <div class="value" id="stat-deadline">—</div>
+        </div>
+      </div>
+
+      <section id="pending-order-panel" class="admin-panel hidden">
+        <h2 class="text-sm text-ink-400 uppercase tracking-wider mb-2">待支付订单</h2>
+        <p id="pending-order-text" class="text-sm text-ink-200"></p>
+        <a id="pending-order-link" class="text-xs text-accent-blue hover:underline" target="_blank" rel="noopener">去支付 →</a>
+      </section>
+
+      <section>
+        <div class="flex items-center justify-between">
+          <h2 class="text-sm text-ink-400 uppercase tracking-wider mb-2">事件记录</h2>
+          <button id="cancel-btn" class="text-xs text-accent-rose hover:underline">取消此任务</button>
+        </div>
+        <div id="history-timeline" class="flex flex-col"></div>
+      </section>
+    </div>
+  </main>
+</div>
+
+<script src="sweep.js"></script>
+</body>
+</html>

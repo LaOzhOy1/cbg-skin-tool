@@ -4,8 +4,17 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
+
+// 历史遗留的固定登录态路径。账号管理上线后，"默认账号"（自动迁移出的第一个账号）
+// 的 storageStatePath 字段直接指向这个文件——不移动它，这样 bin/cbg-skin.js、
+// tools/watchBrowser.js、src/login.js 这些不感知账号概念的旧脚本继续按原样工作。
 export const STORAGE_STATE_PATH = path.join(__dirname, '..', 'storageState.json');
 export const SITE_URL = 'https://yjwujian.cbg.163.com/cgi/mweb/';
+
+/** 新建账号（非默认账号）时用来生成各自独立的登录态文件路径。 */
+export function accountStorageStatePath(accountId) {
+  return path.join(__dirname, '..', 'data', 'accounts', `${accountId}.storageState.json`);
+}
 
 export function hasSavedSession() {
   return existsSync(STORAGE_STATE_PATH);

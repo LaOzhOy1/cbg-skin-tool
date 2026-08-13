@@ -73,3 +73,48 @@
 }
 .chat-turn.admin { align-self: flex-end; background: var(--surface-2); color: var(--ink-100); }
 .chat-turn.ai { align-self: flex-start; background: rgba(255,255,255,0.03); color: var(--ink-300, var(--ink-200)); border: 1px solid var(--line); }
+
+/* 扫货任务页面 */
+.sweep-item {
+  display: block;
+  width: 100%;
+  text-align: left;
+  padding: 0.6rem 0.75rem;
+  border-radius: 0.6rem;
+  border: 1px solid transparent;
+  color: var(--ink-400);
+  font-size: 0.8rem;
+  transition: background-color 0.2s ease, color 0.2s ease, border-color 0.2s ease;
+}
+.sweep-item:hover { background: var(--surface); color: var(--ink-200); }
+.sweep-item.active-item {
+  background: var(--surface-2);
+  color: var(--ink-100);
+  border-color: var(--line);
+}
+.sweep-item .title { display: block; color: inherit; margin-bottom: 0.2rem; }
+
+.history-entry {
+  border-left: 2px solid var(--line);
+  padding-left: 0.75rem;
+  padding-bottom: 0.75rem;
+  font-size: 0.8rem;
+  color: var(--ink-400);
+}
+.history-entry .event-time { color: var(--ink-500); font-size: 0.7rem; }
+.history-entry.event-order_placed,
+.history-entry.event-payment_confirmed { border-left-color: var(--accent-green); }
+.history-entry.event-order_error,
+.history-entry.event-payment_check_error { border-left-color: var(--accent-rose); }
+.history-entry.event-order_role_missing,
+.history-entry.event-fair_show_blocked { border-left-color: var(--accent-warm); }
+
+.stat-tile {
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid var(--line);
+  border-radius: 0.75rem;
+  padding: 0.75rem 1rem;
+  flex: 1;
+}
+.stat-tile .label { font-size: 0.7rem; color: var(--ink-500); text-transform: uppercase; letter-spacing: 0.05em; }
+.stat-tile .value { font-size: 1.1rem; color: var(--ink-100); margin-top: 0.2rem; }
