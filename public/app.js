@@ -54,6 +54,10 @@ function renderStatus(state) {
   }
   el.statusText.textContent = label;
   el.statusMeta.textContent = `更新于 ${formatTime(state.lastUpdatedAt)} · 共 ${state.itemCount ?? 0} 件`;
+  if (state.risk) {
+    const riskText = state.risk.allow ? state.risk.level : `blocked`;
+    el.statusMeta.textContent += ` · 风险 ${riskText}`;
+  }
 
   if (state.status === 'ok' || state.status === 'loading') {
     hideVerifyOverlay();
@@ -141,7 +145,14 @@ async function startVerifyFlow() {
   el.verifyBtn.textContent = '验证窗口已打开...';
   el.verifyHint.classList.remove('hidden');
 
-  await fetch('/api/verify/start', { method: 'POST' }).catch(() => {});
+  const res = await fetch('/api/verify/start', { method: 'POST' }).catch(() => null);
+  if (!res || !res.ok) {
+    const json = res ? await res.json().catch(() => ({})) : {};
+    el.verifyHint.textContent = json.error || '验证预检被拦截';
+    el.verifyBtn.disabled = false;
+    el.verifyBtn.textContent = '打开验证窗口';
+    return;
+  }
 
   verifyPollTimer = setInterval(async () => {
     try {

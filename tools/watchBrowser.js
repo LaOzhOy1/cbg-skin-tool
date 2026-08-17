@@ -9,6 +9,10 @@
 import { existsSync, appendFileSync } from 'fs';
 import { chromium } from 'playwright';
 import { SITE_URL, STORAGE_STATE_PATH } from '../src/session.js';
+import { CATEGORIES } from '../src/config.js';
+import { summarizeEquipType } from '../server/cbgClient.js';
+import { recordSeenTypes } from '../server/itemTypeCache.js';
+import { summarizeRisk, formatRiskBlock } from '../server/riskGuard.js';
 
 const LOG_PATH = new URL('./watch-browser.log', import.meta.url).pathname;
 
@@ -50,22 +54,60 @@ function attachListeners(page, label) {
         url
       );
     let bodySuffix = '';
+    let rawText = null;
     if (shouldCaptureBody) {
       try {
-        const text = await res.text();
-        bodySuffix = `\n  response: ${text.slice(0, 4000)}`;
+        rawText = await res.text();
+        bodySuffix = `\n  response: ${rawText.slice(0, 4000)}`;
       } catch {
         // 响应体读取失败（比如已经被消费或连接中断），不影响其余日志记录
       }
     }
     log(`${label} [接口响应] ${res.status()} ${req.method()} ${url}${bodySuffix}`);
+
+    // 你人工点击"英雄皮肤/兵器皮肤"分类页时，浏览器本来就会发出这个请求——这里只是
+    // 顺路解析已经收到的响应体，喂给 itemTypeCache 记录种类缩略图，不产生任何新请求。
+    // 和 poller.js 走的是同一份 recordSeenTypes()/图片下载逻辑，行为完全一致。
+    if (rawText && url.includes('get_aggregate_equip_type_list')) {
+      await recordFromEquipTypeListResponse(url, rawText);
+    }
   });
 
   page.on('close', () => log(`${label} [标签页关闭]`));
 }
 
+/** 从请求 URL 里的 kindid 参数反查是哪个分类（英雄皮肤 kindid=3，兵器皮肤 kindid=4）。
+ * 道具分类（kindid=5,6）不在 CATEGORIES 里，找不到时直接跳过，不记录、不报错。 */
+function categoryFromUrl(url) {
+  const kindid = new URL(url).searchParams.get('kindid');
+  return CATEGORIES.find((c) => String(c.kindid) === kindid) || null;
+}
+
+async function recordFromEquipTypeListResponse(url, rawText) {
+  const category = categoryFromUrl(url);
+  if (!category) return;
+  let json;
+  try {
+    json = JSON.parse(rawText);
+  } catch {
+    return;
+  }
+  const types = json.equip_type_list || [];
+  if (types.length === 0) return;
+  const summaries = types.map((typeInfo) => summarizeEquipType(category, typeInfo));
+  await recordSeenTypes(summaries).catch((err) => {
+    log(`[种类缓存] 记录失败: ${err.message || err}`);
+  });
+  log(`[种类缓存] 从 ${category.label} 分类页响应记录了 ${summaries.length} 个种类（含缩略图下载）`);
+}
+
 async function main() {
   log('=== 启动被动监听窗口 ===');
+  const preflight = summarizeRisk({ operation: 'watchBrowser', profile: 'login', ignoreState: true });
+  if (!preflight.allow) {
+    log(formatRiskBlock(preflight));
+    process.exit(1);
+  }
   const browser = await chromium.launch({ headless: false });
   const contextOptions = { viewport: { width: 1400, height: 960 } };
   if (existsSync(STORAGE_STATE_PATH)) {

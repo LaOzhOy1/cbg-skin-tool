@@ -10,6 +10,7 @@
 // 已支付样本确认过（抓包时故意没有真的扫码付款，避免真实扣款），判定"已支付"时故意保守。
 import { CaptchaRequiredError, NotLoggedInError } from './cbgClient.js';
 import { getCookieHeader } from './cookieJar.js';
+import { assertNetworkSafe, noteRiskSignal } from './riskGuard.js';
 
 const ORIGIN = 'https://yjwujian.cbg.163.com';
 const USER_AGENT =
@@ -33,8 +34,14 @@ function baseHeaders(referer) {
   };
 }
 
+function guardedRequest(meta, request) {
+  assertNetworkSafe(meta);
+  return request();
+}
+
 function assertOk(json) {
   if (json.status_code === 'CAPTCHA_AUTH') {
+    noteRiskSignal('captcha_auth', json.msg || '', 'high');
     throw new CaptchaRequiredError(json.msg);
   }
   if (
@@ -43,6 +50,8 @@ function assertOk(json) {
     json.status_code === 'MOBILE_AUTH' ||
     json.status === -1
   ) {
+    const severity = json.status_code === 'MOBILE_AUTH' ? 'high' : 'medium';
+    noteRiskSignal(String(json.status_code || 'not_logged_in').toLowerCase(), json.msg || '', severity);
     throw new NotLoggedInError(json.msg);
   }
   if (json.status_code && json.status_code !== 'OK') {
@@ -82,18 +91,26 @@ export async function placeOrder(item, account) {
     `serverid=${item.serverId}&ordersn=${item.gameOrdersn}&roleid=${roleId}` +
     `&buyer_serverid=${buyerServerId}&confirm_price_total=${confirmPriceTotal}&view_loc=hag_msg&exter=direct`;
 
-  const previewRes = await fetch(`${ORIGIN}/cgi/api/preview_order?client_type=h5`, {
-    method: 'POST',
-    headers: { ...baseHeaders(referer), 'Content-Type': 'application/x-www-form-urlencoded' },
-    body,
-  });
+  const previewRes = await guardedRequest(
+    { operation: 'sweep.previewOrder', profile: 'place_order' },
+    () =>
+      fetch(`${ORIGIN}/cgi/api/preview_order?client_type=h5`, {
+        method: 'POST',
+        headers: { ...baseHeaders(referer), 'Content-Type': 'application/x-www-form-urlencoded' },
+        body,
+      })
+  );
   assertOk(await previewRes.json());
 
-  const addRes = await fetch(`${ORIGIN}/cgi/api/add_order?client_type=h5`, {
-    method: 'POST',
-    headers: { ...baseHeaders(referer), 'Content-Type': 'application/x-www-form-urlencoded' },
-    body,
-  });
+  const addRes = await guardedRequest(
+    { operation: 'sweep.addOrder', profile: 'place_order' },
+    () =>
+      fetch(`${ORIGIN}/cgi/api/add_order?client_type=h5`, {
+        method: 'POST',
+        headers: { ...baseHeaders(referer), 'Content-Type': 'application/x-www-form-urlencoded' },
+        body,
+      })
+  );
   const addJson = assertOk(await addRes.json());
   const order = addJson.order || {};
   if (!order.orderid_to_epay) {
@@ -118,7 +135,10 @@ export async function placeOrder(item, account) {
 export async function checkPaymentResult(orderIdToEpay) {
   const referer = `${ORIGIN}/cgi/mweb/order/result?orderid_to_epay=${orderIdToEpay}`;
   const url = `${ORIGIN}/cgi/api/check_order_pay_result?client_type=h5&orderid_to_epay_list=${orderIdToEpay}`;
-  const res = await fetch(url, { headers: baseHeaders(referer) });
+  const res = await guardedRequest(
+    { operation: 'sweep.checkPaymentResult', profile: 'payment_check' },
+    () => fetch(url, { headers: baseHeaders(referer) })
+  );
   const json = assertOk(await res.json());
 
   const result = json.result || json.pay_result_list || [];

@@ -4,6 +4,8 @@
 import { fetchAllSkins, CaptchaRequiredError, NotLoggedInError } from './cbgClient.js';
 import { setItems, setStatus, setNextPollAt } from './state.js';
 import { runLoginFlow, isLoginFlowRunning } from './loginFlow.js';
+import { recordSeenTypes, pruneExpired } from './itemTypeCache.js';
+import { summarizeRisk, formatRiskBlock, RiskBlockedError } from './riskGuard.js';
 
 const BASE_INTERVAL_MS = Number(process.env.POLL_INTERVAL_MS) || 20000;
 const JITTER_RATIO = 0.2; // ±20% 随机抖动，避免整点式请求
@@ -18,10 +20,28 @@ let paused = false;
 
 async function tick() {
   if (paused) return;
+  const preflight = summarizeRisk({ operation: 'poller.tick', profile: 'poller' });
+  if (!preflight.allow) {
+    setStatus('error', formatRiskBlock(preflight));
+    pause();
+    return;
+  }
+
   try {
-    const items = await fetchAllSkins();
+    const { items, seenTypes } = await fetchAllSkins();
     setItems(items);
+    // 种类图片缓存：种类数据本来就在这轮请求里飞过，这里只是不再丢弃；
+    // 下载图片是唯一新增的网络调用，且只在本地还没有缓存图时才下载一次。
+    // 失败不影响主轮询流程——recordSeenTypes()/pruneExpired() 内部已经吞掉了
+    // 单个种类下载失败的异常，这里额外兜底防止意外抛出打断轮询。
+    await recordSeenTypes(seenTypes).catch(() => {});
+    pruneExpired();
   } catch (err) {
+    if (err instanceof RiskBlockedError) {
+      setStatus('error', err);
+      pause();
+      return;
+    }
     if (err instanceof CaptchaRequiredError) {
       setStatus('needs_verification', err);
       pause();

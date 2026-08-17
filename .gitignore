@@ -4,3 +4,4 @@ skins.json
 *.log
 data/
 .env
+public/item-cache/

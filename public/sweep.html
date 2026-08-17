@@ -33,9 +33,14 @@
           <option value="weapon">兵器皮肤</option>
         </select>
       </label>
+      <div class="flex flex-col gap-1">
+        <span class="text-xs text-ink-500">点选要蹲的皮肤种类（最近 7 天见过的，含缩略图）</span>
+        <div id="item-type-grid" class="item-type-grid"></div>
+        <p id="item-type-hint" class="text-xs text-ink-500"></p>
+      </div>
       <label class="flex flex-col gap-1">
         <span class="text-xs text-ink-500">商品名称</span>
-        <input id="field-item-name" class="admin-input" list="field-item-name-options" placeholder="选择当前在售商品，或手动输入名称" required autocomplete="off" />
+        <input id="field-item-name" class="admin-input" list="field-item-name-options" placeholder="点选上方缩略图，或手动输入名称" required autocomplete="off" />
         <datalist id="field-item-name-options"></datalist>
         <span id="item-name-hint" class="text-xs text-ink-500"></span>
       </label>

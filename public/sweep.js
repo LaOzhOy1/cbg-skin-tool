@@ -30,12 +30,16 @@ const EVENT_LABELS = {
 
 let currentId = null;
 let itemNamesByCategory = { hero: [], weapon: [] };
+let itemTypesByCategory = { hero: [], weapon: [] };
+let selectedEquipType = null;
 
 const el = {
   createForm: document.getElementById('create-form'),
   itemName: document.getElementById('field-item-name'),
   itemNameOptions: document.getElementById('field-item-name-options'),
   itemNameHint: document.getElementById('item-name-hint'),
+  itemTypeGrid: document.getElementById('item-type-grid'),
+  itemTypeHint: document.getElementById('item-type-hint'),
   category: document.getElementById('field-category'),
   price: document.getElementById('field-price'),
   quantity: document.getElementById('field-quantity'),
@@ -103,7 +107,63 @@ function renderItemNameOptions() {
     : '当前分类没有在售商品可选，请手动输入名称';
 }
 
-el.category.addEventListener('change', renderItemNameOptions);
+async function loadItemTypes() {
+  try {
+    const [hero, weapon] = await Promise.all([
+      api('/item-types?category=hero'),
+      api('/item-types?category=weapon'),
+    ]);
+    itemTypesByCategory = { hero, weapon };
+  } catch {
+    // 拉取失败不阻塞表单，退化成只能手动输入名称
+  }
+  renderItemTypeGrid();
+}
+
+function itemTypeThumb(type) {
+  return type.localImagePath
+    ? `<img class="thumb" src="${type.localImagePath}" alt="${escapeHtml(type.typeName)}" loading="lazy" onerror="this.replaceWith(Object.assign(document.createElement('div'), {className: 'thumb-placeholder', textContent: '无图'}))" />`
+    : `<div class="thumb-placeholder">无图</div>`;
+}
+
+function renderItemTypeGrid() {
+  const types = itemTypesByCategory[el.category.value] || [];
+  el.itemTypeGrid.innerHTML = types
+    .map(
+      (t) => `
+        <button type="button" class="item-type-card ${t.equipType === selectedEquipType ? 'selected' : ''}" data-equip-type="${t.equipType}" data-type-name="${escapeHtml(t.typeName)}">
+          ${itemTypeThumb(t)}
+          <span class="name">${escapeHtml(t.typeName)}</span>
+          ${t.minPrice != null ? `<span class="price">最低 ¥${t.minPrice}</span>` : ''}
+        </button>`
+    )
+    .join('');
+  el.itemTypeHint.textContent = types.length
+    ? `最近 7 天见过 ${types.length} 种，点击直接填入下方商品名称`
+    : '当前分类还没有缓存数据，请等待轮询采集或手动输入名称';
+}
+
+el.itemTypeGrid.addEventListener('click', (e) => {
+  const card = e.target.closest('.item-type-card');
+  if (!card) return;
+  selectedEquipType = card.dataset.equipType;
+  el.itemName.value = card.dataset.typeName;
+  renderItemTypeGrid();
+});
+
+// 手动编辑名称文本框时，之前点选的卡片高亮就不再准确了，取消高亮（不影响提交，
+// 提交只看 el.itemName.value，卡片高亮只是辅助视觉反馈）。
+el.itemName.addEventListener('input', () => {
+  if (!selectedEquipType) return;
+  selectedEquipType = null;
+  renderItemTypeGrid();
+});
+
+el.category.addEventListener('change', () => {
+  renderItemNameOptions();
+  selectedEquipType = null;
+  renderItemTypeGrid();
+});
 
 async function loadList() {
   const tasks = await api('/');
@@ -204,6 +264,8 @@ el.createForm.addEventListener('submit', async (e) => {
   try {
     const task = await api('/', { method: 'POST', body: JSON.stringify(payload) });
     el.createForm.reset();
+    selectedEquipType = null;
+    renderItemTypeGrid();
     await loadList();
     selectTask(task.id);
   } catch (err) {
@@ -231,5 +293,7 @@ async function pollLoop() {
 
 loadList();
 loadItemNames();
+loadItemTypes();
 setInterval(pollLoop, 5000);
 setInterval(loadItemNames, 30000);
+setInterval(loadItemTypes, 30000);

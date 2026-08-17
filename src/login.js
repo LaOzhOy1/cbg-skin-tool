@@ -1,11 +1,22 @@
 import { chromium } from 'playwright';
 import { SITE_URL, STORAGE_STATE_PATH, isLoggedIn } from './session.js';
+import { summarizeRisk, formatRiskBlock } from '../server/riskGuard.js';
 
 /**
  * 打开一个真实浏览器窗口，让用户手动完成网易通行证登录（扫码/短信/密码，
  * 人机验证均由用户本人操作）。检测到登录成功后保存 storageState 并退出。
  */
 async function main() {
+  const preflight = summarizeRisk({ operation: 'cli.login', profile: 'login', ignoreState: true });
+  if (!preflight.allow) {
+    console.error(formatRiskBlock(preflight));
+    process.exit(1);
+  }
+
+  if (await tryReuseSavedSession()) {
+    return;
+  }
+
   console.log('正在打开浏览器，请在窗口中手动登录你的藏宝阁账号...');
   const browser = await chromium.launch({ headless: false });
   const context = await browser.newContext({ viewport: { width: 1280, height: 900 } });
@@ -30,6 +41,30 @@ async function main() {
   await context.storageState({ path: STORAGE_STATE_PATH });
   console.log(`登录成功，登录态已保存到 ${STORAGE_STATE_PATH}`);
   await browser.close();
+}
+
+async function tryReuseSavedSession() {
+  try {
+    const browser = await chromium.launch({ headless: true });
+    try {
+      const context = await browser.newContext({
+        storageState: STORAGE_STATE_PATH,
+        viewport: { width: 1280, height: 900 },
+      });
+      const page = await context.newPage();
+      await page.goto(SITE_URL, { waitUntil: 'domcontentloaded' });
+      if (await isLoggedIn(page)) {
+        await context.storageState({ path: STORAGE_STATE_PATH });
+        console.log(`已检测到可用 cookie，登录态已刷新到 ${STORAGE_STATE_PATH}`);
+        return true;
+      }
+      return false;
+    } finally {
+      await browser.close();
+    }
+  } catch {
+    return false;
+  }
 }
 
 main().catch((err) => {

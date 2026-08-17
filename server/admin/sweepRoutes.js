@@ -5,6 +5,7 @@ import { Router } from 'express';
 import { list, get } from './store.js';
 import { getItems } from '../state.js';
 import { createSweepTask, cancelSweepTask } from './sweepEngine.js';
+import { listCachedTypes } from '../itemTypeCache.js';
 
 const router = Router();
 
@@ -65,6 +66,16 @@ router.get('/item-names', (req, res) => {
     hero: [...byCategory.hero].sort(),
     weapon: [...byCategory.weapon].sort(),
   });
+});
+
+/**
+ * 可视化选品网格的数据源：最近 7 天见过的皮肤"种类"（带缩略图/参考价），
+ * 比 /item-names 覆盖更宽——即使该种类当前恰好没有在售个体商品（轮询快照里没有），
+ * 只要 7 天内出现过就还在这里。零额外网络请求，直接读 itemTypeCache 的本地缓存。
+ */
+router.get('/item-types', (req, res) => {
+  const category = req.query.category === 'weapon' ? 'weapon' : 'hero';
+  res.json(listCachedTypes(category));
 });
 
 router.get('/', (req, res) => {

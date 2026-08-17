@@ -4,11 +4,12 @@
 // 扫货任务的生命周期和"AI 需求"完全不同（跨天持续监控、多次触发下单），所以这里单独
 // 一份状态机，不合并进 stateMachine.js——业务语义不同，硬合并只会让两边都难懂。
 import { list, get, update, insert } from './store.js';
-import { getState, getItems } from '../state.js';
+import { getState, getItems, setStatus } from '../state.js';
 import { fetchEquipDetail, fetchEquipTypes, normalizeItem, searchItemsWithVariationFilter } from '../cbgClient.js';
 import { CATEGORIES } from '../../src/config.js';
 import { placeOrder, checkPaymentResult, BuyerRoleNotConfiguredError } from '../sweepClient.js';
 import { getActiveAccount } from './accounts.js';
+import { summarizeRisk, formatRiskBlock, RiskBlockedError } from '../riskGuard.js';
 
 const TICK_INTERVAL_MS = 30_000;
 
@@ -111,6 +112,7 @@ async function tryPlaceOrder(task, item, account) {
       return;
     }
   } catch (err) {
+    if (err instanceof RiskBlockedError) throw err;
     addHistory(task.id, 'order_error', `下单前查询商品详情出错：${err.message || err}`);
     return;
   }
@@ -131,6 +133,7 @@ async function tryPlaceOrder(task, item, account) {
     });
     addHistory(task.id, 'order_placed', `已下单：${item.typeName}，¥${item.price}（订单号 ${order.orderIdToEpay}）`);
   } catch (err) {
+    if (err instanceof RiskBlockedError) throw err;
     if (err instanceof BuyerRoleNotConfiguredError) {
       addHistory(task.id, 'order_role_missing', `检测到匹配商品 ${item.typeName}（¥${item.price}），但下单未配置买家角色：${err.message}`);
       return;
@@ -156,72 +159,97 @@ async function checkPendingPayment(task) {
     });
     addHistory(task.id, 'payment_confirmed', `支付确认成功（¥${pendingOrder.price}），已购 ${purchasedCount}/${task.targetQuantity}`);
   } catch (err) {
+    if (err instanceof RiskBlockedError) throw err;
     addHistory(task.id, 'payment_check_error', `查询支付状态出错：${err.message || err}`);
   }
 }
 
 async function tick() {
-  const globalStatus = getState().status;
-  if (globalStatus !== 'ok') {
-    // 轮询那边已经检测到风控/未登录，扫货引擎不重复触发验证，也不做任何新请求，
-    // 完全依赖 poller.js/loginFlow.js 自己恢复。
-    return;
-  }
-
-  const tasks = list('sweepTasks').filter((t) => NON_TERMINAL_STATUSES.includes(t.status));
-  const items = getItems();
-  const activeAccount = getActiveAccount();
-
-  for (const task of tasks) {
-    const fresh = get('sweepTasks', task.id);
-    if (!fresh || !NON_TERMINAL_STATUSES.includes(fresh.status)) continue;
-
-    // 任务绑定的是创建时的账号（见 createSweepTask），只有这个账号是当前活跃账号时
-    // 才真的监控/下单——这是"优先选账号再执行"的落地。不匹配时完全跳过（不发任何
-    // 请求，也不做到期判断，任务在账号切走期间视为暂停），只在第一次检测到不匹配时
-    // 记一条 history，避免每 30 秒刷一条重复日志。
-    if (fresh.accountId !== activeAccount?.id) {
-      if (!fresh.accountMismatchNotified) {
-        update('sweepTasks', fresh.id, { accountMismatchNotified: true });
-        addHistory(fresh.id, 'account_inactive', '绑定的账号当前不是活跃账号，暂停监控直到切回该账号');
-      }
-      continue;
-    }
-    if (fresh.accountMismatchNotified) {
-      update('sweepTasks', fresh.id, { accountMismatchNotified: false });
-      addHistory(fresh.id, 'account_active', '绑定的账号已重新变为活跃账号，恢复监控');
+  try {
+    const globalStatus = getState().status;
+    if (globalStatus !== 'ok') {
+      // 轮询那边已经检测到风控/未登录，扫货引擎不重复触发验证，也不做任何新请求，
+      // 完全依赖 poller.js/loginFlow.js 自己恢复。
+      return;
     }
 
-    if (isExpired(fresh)) {
-      update('sweepTasks', fresh.id, { status: assertTransition(fresh.status, 'expired') });
-      addHistory(
-        fresh.id,
-        'expired',
-        fresh.status === 'pending_payment'
-          ? '任务已到期，但仍有订单待支付——引擎不会自动取消真实订单，请去「我的订单」自行处理'
-          : '任务已到期，未凑够目标数量'
-      );
-      continue;
+    const preflight = summarizeRisk({ operation: 'sweep.tick', profile: 'poller' });
+    if (!preflight.allow) {
+      const message = formatRiskBlock(preflight);
+      console.error('[admin/sweepEngine] 风险拦截:', message);
+      setStatus('error', message);
+      return;
     }
 
-    if (fresh.status === 'pending_payment') {
-      await checkPendingPayment(fresh);
-      continue;
-    }
+    const tasks = list('sweepTasks').filter((t) => NON_TERMINAL_STATUSES.includes(t.status));
+    const items = getItems();
+    const activeAccount = getActiveAccount();
 
-    // status === 'active'
-    let item;
-    if (fresh.variationFilter) {
-      try {
-        item = await findMatchingItemViaVariationFilter(fresh);
-      } catch (err) {
-        addHistory(fresh.id, 'order_error', `星格筛选查询出错：${err.message || err}`);
+    for (const task of tasks) {
+      const fresh = get('sweepTasks', task.id);
+      if (!fresh || !NON_TERMINAL_STATUSES.includes(fresh.status)) continue;
+
+      // 任务绑定的是创建时的账号（见 createSweepTask），只有这个账号是当前活跃账号时
+      // 才真的监控/下单——这是"优先选账号再执行"的落地。不匹配时完全跳过（不发任何
+      // 请求，也不做到期判断，任务在账号切走期间视为暂停），只在第一次检测到不匹配时
+      // 记一条 history，避免每 30 秒刷一条重复日志。
+      if (fresh.accountId !== activeAccount?.id) {
+        if (!fresh.accountMismatchNotified) {
+          update('sweepTasks', fresh.id, { accountMismatchNotified: true });
+          addHistory(fresh.id, 'account_inactive', '绑定的账号当前不是活跃账号，暂停监控直到切回该账号');
+        }
         continue;
       }
-    } else {
-      item = findMatchingItem(items, fresh);
+      if (fresh.accountMismatchNotified) {
+        update('sweepTasks', fresh.id, { accountMismatchNotified: false });
+        addHistory(fresh.id, 'account_active', '绑定的账号已重新变为活跃账号，恢复监控');
+      }
+
+      if (isExpired(fresh)) {
+        update('sweepTasks', fresh.id, { status: assertTransition(fresh.status, 'expired') });
+        addHistory(
+          fresh.id,
+          'expired',
+          fresh.status === 'pending_payment'
+            ? '任务已到期，但仍有订单待支付——引擎不会自动取消真实订单，请去「我的订单」自行处理'
+            : '任务已到期，未凑够目标数量'
+        );
+        continue;
+      }
+
+      if (fresh.status === 'pending_payment') {
+        await checkPendingPayment(fresh);
+        continue;
+      }
+
+      // status === 'active'
+      let item;
+      if (fresh.variationFilter) {
+        try {
+          item = await findMatchingItemViaVariationFilter(fresh);
+        } catch (err) {
+          if (err instanceof RiskBlockedError) {
+            const message = err.message || String(err);
+            console.error('[admin/sweepEngine] 风险拦截:', message);
+            setStatus('error', message);
+            return;
+          }
+          addHistory(fresh.id, 'order_error', `星格筛选查询出错：${err.message || err}`);
+          continue;
+        }
+      } else {
+        item = findMatchingItem(items, fresh);
+      }
+      if (item) await tryPlaceOrder(fresh, item, activeAccount);
     }
-    if (item) await tryPlaceOrder(fresh, item, activeAccount);
+  } catch (err) {
+    if (err instanceof RiskBlockedError) {
+      const message = err.message || String(err);
+      console.error('[admin/sweepEngine] 风险拦截:', message);
+      setStatus('error', message);
+      return;
+    }
+    throw err;
   }
 }
 

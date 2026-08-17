@@ -4,6 +4,7 @@
 //   2. POST /cgi-bin/recommend.py?act=recommd_by_role      — 种类下具体在售个体商品
 import { CATEGORIES } from '../src/config.js';
 import { getCookieHeader } from './cookieJar.js';
+import { assertNetworkSafe, noteRiskSignal } from './riskGuard.js';
 
 const ORIGIN = 'https://yjwujian.cbg.163.com';
 const USER_AGENT =
@@ -38,9 +39,15 @@ function baseHeaders(referer) {
   };
 }
 
+function guardedRequest(meta, request) {
+  assertNetworkSafe(meta);
+  return request();
+}
+
 /** 检查响应体的 status_code，把风控/未登录错误转成明确的异常类型，不再静默吞掉。 */
 function assertOk(json) {
   if (json.status_code === 'CAPTCHA_AUTH') {
+    noteRiskSignal('captcha_auth', json.msg || '', 'high');
     throw new CaptchaRequiredError(json.msg);
   }
   if (
@@ -49,6 +56,8 @@ function assertOk(json) {
     json.status_code === 'MOBILE_AUTH' ||
     json.status === -1
   ) {
+    const severity = json.status_code === 'MOBILE_AUTH' ? 'high' : 'medium';
+    noteRiskSignal(String(json.status_code || 'not_logged_in').toLowerCase(), json.msg || '', severity);
     // AUTO_LOGIN 实测出现在会话 cookie（sid 等）过期/需要刷新时，浏览器访问一次页面会
     // 自动轮转出新 cookie；MOBILE_AUTH 是风控升级到要求短信验证手机号。
     // 纯 HTTP 轮询没有自动刷新/短信验证的能力，统一当作"需要重新登录"处理，
@@ -66,9 +75,31 @@ export async function fetchEquipTypes(category) {
   const url =
     `${ORIGIN}/cgi/api/get_aggregate_equip_type_list?client_type=h5&count=${EQUIP_LIST_PAGE_SIZE}` +
     `&page=1&order_by=selling_time%20DESC&query_onsale=1&kindid=${category.kindid}&exter=direct`;
-  const res = await fetch(url, { headers: baseHeaders(referer) });
+  const res = await guardedRequest(
+    { operation: 'cbg.fetchEquipTypes', profile: 'poller' },
+    () => fetch(url, { headers: baseHeaders(referer) })
+  );
   const json = assertOk(await res.json());
   return json.equip_type_list || [];
+}
+
+/**
+ * 把 fetchEquipTypes() 返回的原始种类对象整理成种类图片缓存需要的摘要。
+ *
+ * `equip_type_list_img_url` 抓包确认是"种类"级别的稳定缩略图（一个 equip_type 对应
+ * 一张图），和 normalizeItem() 里的 `icon` 字段是两回事——`icon` 是通用道具图标
+ * （比如"头发材料"图标全站共用一张图），不代表具体皮肤外观，不能用来做选品缩略图。
+ * 这个函数只是把已经在飞的种类列表响应里原本被忽略的字段透传出来，不产生新请求。
+ */
+export function summarizeEquipType(category, typeInfo) {
+  return {
+    category: category.key === 'weapon_skin' ? 'weapon' : 'hero',
+    equipType: typeInfo.equip_type,
+    typeName: typeInfo.equip_type_name,
+    typeDesc: typeInfo.equip_type_desc,
+    minPrice: typeInfo.min_price != null ? typeInfo.min_price / 100 : null,
+    imgUrl: typeInfo.equip_type_list_img_url || null,
+  };
 }
 
 /**
@@ -85,11 +116,15 @@ export async function fetchEquipTypes(category) {
 export async function fetchEquipDetail(item) {
   const referer = `${ORIGIN}/cgi/mweb/equip/${item.serverId}/${item.gameOrdersn}`;
   const body = `serverid=${item.serverId}&ordersn=${item.gameOrdersn}&exclude_equip_desc=1&exter=direct`;
-  const res = await fetch(`${ORIGIN}/cgi/api/get_equip_detail?client_type=h5`, {
-    method: 'POST',
-    headers: { ...baseHeaders(referer), 'Content-Type': 'application/x-www-form-urlencoded' },
-    body,
-  });
+  const res = await guardedRequest(
+    { operation: 'cbg.fetchEquipDetail', profile: 'place_order' },
+    () =>
+      fetch(`${ORIGIN}/cgi/api/get_equip_detail?client_type=h5`, {
+        method: 'POST',
+        headers: { ...baseHeaders(referer), 'Content-Type': 'application/x-www-form-urlencoded' },
+        body,
+      })
+  );
   const json = assertOk(await res.json());
   const equip = json.equip || {};
   return {
@@ -135,11 +170,15 @@ export async function searchItemsWithVariationFilter(category, equipType, filter
   const items = [];
   for (let p = 1; p <= MAX_ITEM_PAGES_PER_TYPE; p++) {
     params.set('page', String(p));
-    const res = await fetch(`${ORIGIN}/cgi-bin/recommend.py?client_type=h5&act=recommd_by_role`, {
-      method: 'POST',
-      headers: { ...baseHeaders(referer), 'Content-Type': 'application/x-www-form-urlencoded' },
-      body: params.toString(),
-    });
+    const res = await guardedRequest(
+      { operation: 'cbg.searchItemsWithVariationFilter', profile: 'variation_query' },
+      () =>
+        fetch(`${ORIGIN}/cgi-bin/recommend.py?client_type=h5&act=recommd_by_role`, {
+          method: 'POST',
+          headers: { ...baseHeaders(referer), 'Content-Type': 'application/x-www-form-urlencoded' },
+          body: params.toString(),
+        })
+    );
     const json = assertOk(await res.json());
     const result = json.result || [];
     items.push(...result);
@@ -155,11 +194,15 @@ async function fetchEquipItems(category, equipType) {
     const body =
       `search_type=${category.searchType}&count=${EQUIP_ITEM_PAGE_SIZE}&pass_fair_show=1` +
       `&order_by=recommd&equip_type=${equipType}&view_loc=equip_type_detail&page=${p}&exter=direct`;
-    const res = await fetch(`${ORIGIN}/cgi-bin/recommend.py?client_type=h5&act=recommd_by_role`, {
-      method: 'POST',
-      headers: { ...baseHeaders(referer), 'Content-Type': 'application/x-www-form-urlencoded' },
-      body,
-    });
+    const res = await guardedRequest(
+      { operation: 'cbg.fetchEquipItems', profile: 'poller' },
+      () =>
+        fetch(`${ORIGIN}/cgi-bin/recommend.py?client_type=h5&act=recommd_by_role`, {
+          method: 'POST',
+          headers: { ...baseHeaders(referer), 'Content-Type': 'application/x-www-form-urlencoded' },
+          body,
+        })
+    );
     const json = assertOk(await res.json());
     const result = json.result || [];
     items.push(...result);
@@ -191,7 +234,6 @@ export function normalizeItem(item, category, typeInfo) {
   };
 }
 
-/** 抓取全部分类下的全部在售个体商品。命中风控/未登录时直接抛出，调用方（poller）负责状态切换。 */
 /**
  * 查询当前登录账号的基础信息（手机号、网易通行证账号标识、手机绑定状态）。
  *
@@ -206,9 +248,10 @@ export function normalizeItem(item, category, typeInfo) {
  */
 export async function fetchUserProfile() {
   const referer = `${ORIGIN}/cgi/mweb/`;
-  const res = await fetch(`${ORIGIN}/cgi/api/get_user_data?client_type=h5&exter=direct`, {
-    headers: baseHeaders(referer),
-  });
+  const res = await guardedRequest(
+    { operation: 'cbg.fetchUserProfile', profile: 'login' },
+    () => fetch(`${ORIGIN}/cgi/api/get_user_data?client_type=h5&exter=direct`, { headers: baseHeaders(referer) })
+  );
   const json = assertOk(await res.json());
   const loginInfo = json.login_info || {};
   return {
@@ -220,16 +263,23 @@ export async function fetchUserProfile() {
   };
 }
 
+/**
+ * 抓取全部分类下的全部在售个体商品，顺带把这一轮见过的"种类"摘要一起返回
+ * （seenTypes，用于 itemTypeCache.js 的 7 天滚动缓存）——这份种类数据本来就在
+ * fetchEquipTypes() 里飞了一次，这里只是不再丢弃，不产生任何新请求。
+ */
 export async function fetchAllSkins() {
   const all = [];
+  const seenTypes = [];
   for (const category of CATEGORIES) {
     const types = await fetchEquipTypes(category);
     for (const typeInfo of types) {
+      seenTypes.push(summarizeEquipType(category, typeInfo));
       const items = await fetchEquipItems(category, typeInfo.equip_type);
       for (const item of items) {
         all.push(normalizeItem(item, category, typeInfo));
       }
     }
   }
-  return all;
+  return { items: all, seenTypes };
 }

@@ -4,6 +4,7 @@ import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import { parseArgs } from 'util';
+import { summarizeRisk } from '../server/riskGuard.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const PROJECT_ROOT = path.join(__dirname, '..');
@@ -209,7 +210,16 @@ async function doctorCommand(args) {
     }
   }
 
+  const networkRisk = summarizeRisk({ operation: 'doctor', profile: 'default', ignoreState: true });
+  checks.push({
+    name: '网络风险',
+    status: networkRisk.allow ? (networkRisk.level === 'high' ? 'warn' : 'ok') : 'error',
+    message: networkRisk.allow
+      ? `${networkRisk.level === 'high' ? '当前调用本身偏高风险，但环境未见明显拦截因素' : '未见明显拦截因素'}`
+      : networkRisk.reasons.join('；'),
+  });
   const ready = checks.every((check) => check.status !== 'error');
+
   if (values.json) {
     console.log(JSON.stringify({ ready, checks }, null, 2));
   } else {
@@ -244,6 +254,9 @@ async function statusCommand(args) {
   console.log(`上次更新: ${formatTime(state.lastUpdatedAt)}`);
   console.log(`下次轮询: ${formatTime(state.nextPollAt)}`);
   if (state.lastError) console.log(`错误: ${state.lastError}`);
+  if (state.risk) {
+    console.log(`风险: ${state.risk.allow ? state.risk.level : `blocked (${state.risk.reasons.join('；')})`}`);
+  }
 }
 
 function normalizeCategory(value) {

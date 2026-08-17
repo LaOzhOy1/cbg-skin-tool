@@ -10,6 +10,7 @@ import sweepRouter from './admin/sweepRoutes.js';
 import { startSweepEngine } from './admin/sweepEngine.js';
 import accountRouter from './admin/accountRoutes.js';
 import { ensureDefaultAccount, getActiveAccount } from './admin/accounts.js';
+import { summarizeRisk, formatRiskBlock } from './riskGuard.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -45,7 +46,7 @@ app.get('/api/items', (req, res) => {
 });
 
 app.get('/api/status', (req, res) => {
-  res.json(getState());
+  res.json({ ...getState(), risk: summarizeRisk({ operation: 'api.status', profile: 'poller' }) });
 });
 
 // 这两个旧接口保留，始终针对"当前活跃账号"操作——账号管理上线后，更精确的
@@ -53,6 +54,10 @@ app.get('/api/status', (req, res) => {
 app.post('/api/verify/start', (req, res) => {
   if (isLoginFlowRunning()) {
     return res.json({ started: false, reason: 'already_running' });
+  }
+  const preflight = summarizeRisk({ operation: 'api.verify.start', profile: 'login', ignoreState: true });
+  if (!preflight.allow) {
+    return res.status(409).json({ started: false, error: formatRiskBlock(preflight) });
   }
   runLoginFlow()
     .then((ok) => {

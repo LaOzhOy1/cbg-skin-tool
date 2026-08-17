@@ -14,6 +14,7 @@ import {
 import { runLoginFlow, isLoginFlowRunning, loginFlowRunningAccountId } from '../loginFlow.js';
 import { getVerifyState } from '../state.js';
 import { resumePolling, isPaused } from '../poller.js';
+import { summarizeRisk, formatRiskBlock } from '../riskGuard.js';
 
 const router = Router();
 
@@ -82,6 +83,10 @@ router.post('/:id/verify/start', (req, res) => {
   if (!account) return res.status(404).json({ error: '账号不存在' });
   if (isLoginFlowRunning()) {
     return res.json({ started: false, reason: 'already_running' });
+  }
+  const preflight = summarizeRisk({ operation: 'accounts.verify.start', profile: 'login', ignoreState: true });
+  if (!preflight.allow) {
+    return res.status(409).json({ error: formatRiskBlock(preflight) });
   }
   runLoginFlow(account.id)
     .then((ok) => {

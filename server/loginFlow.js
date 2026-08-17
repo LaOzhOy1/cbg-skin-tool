@@ -14,6 +14,7 @@ import { SITE_URL, isLoggedIn } from '../src/session.js';
 import { reload as reloadCookies, setStorageStatePath } from './cookieJar.js';
 import { setVerifyState } from './state.js';
 import { getAccount, getActiveAccount } from './admin/accounts.js';
+import { summarizeRisk, formatRiskBlock } from './riskGuard.js';
 
 const WAIT_TIMEOUT_MS = 5 * 60 * 1000;
 const POLL_INTERVAL_MS = 3000;
@@ -36,6 +37,31 @@ async function probePasses(page) {
   return Boolean(json && json.status_code === 'OK');
 }
 
+async function tryReuseSavedSession(account) {
+  if (!account.storageStatePath || !existsSync(account.storageStatePath)) return false;
+
+  let browser;
+  try {
+    browser = await chromium.launch({ headless: true });
+    const context = await browser.newContext({
+      storageState: account.storageStatePath,
+      viewport: { width: 1280, height: 900 },
+    });
+    const page = await context.newPage();
+    await page.goto(SITE_URL, { waitUntil: 'domcontentloaded' });
+    if (!(await probePasses(page))) return false;
+
+    setStorageStatePath(account.storageStatePath);
+    reloadCookies();
+    setVerifyState(account.id, 'success');
+    return true;
+  } catch {
+    return false;
+  } finally {
+    if (browser) await browser.close();
+  }
+}
+
 /**
  * 打开一个可见浏览器窗口，等待用户手动登录/过验证码，成功后把 storageState 保存到
  * 这个账号自己的登录态文件里并关闭窗口。
@@ -53,11 +79,22 @@ export async function runLoginFlow(accountId) {
   if (runningAccountId) {
     throw new Error('已有一个验证窗口在运行，请先完成或关闭它');
   }
+
+  const preflight = summarizeRisk({ operation: 'loginFlow.runLoginFlow', profile: 'login', ignoreState: true });
+  if (!preflight.allow) {
+    setVerifyState(account.id, 'error', formatRiskBlock(preflight));
+    return false;
+  }
+
   runningAccountId = account.id;
   setVerifyState(account.id, 'running');
 
   let browser;
   try {
+    if (await tryReuseSavedSession(account)) {
+      return true;
+    }
+
     browser = await chromium.launch({ headless: false });
     // 复用已有登录态（如果有）：验证码拦截时账号通常仍是登录状态，直接带着旧 cookie
     // 打开就能看到验证码本身，而不是被要求重新走一遍手机号登录。

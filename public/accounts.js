@@ -207,7 +207,13 @@ el.verifyBtn.addEventListener('click', async () => {
   el.verifyHint.classList.remove('hidden');
   el.verifyHint.textContent = '等待人工完成验证...';
 
-  await api(`/${accountId}/verify/start`, { method: 'POST' }).catch(() => {});
+  const started = await api(`/${accountId}/verify/start`, { method: 'POST' }).catch((err) => ({ error: err.message }));
+  if (started?.error) {
+    el.verifyHint.textContent = started.error;
+    el.verifyBtn.disabled = false;
+    el.verifyBtn.textContent = '打开验证窗口';
+    return;
+  }
 
   verifyPollTimer = setInterval(async () => {
     try {
