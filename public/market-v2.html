@@ -1,0 +1,636 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>藏宝阁皮肤市场 · 永劫无间（v2 交互原型）</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<style>
+/* ===== 莫兰迪暗色主题（沿用现有 styles.css 的基调，保持项目视觉一致） ===== */
+:root{
+  --canvas:#15161a; --surface:#1b1c21; --surface-2:#21222a; --surface-3:#282932;
+  --line:rgba(255,255,255,.07); --line-2:rgba(255,255,255,.12);
+  --ink-100:#e7e5e2; --ink-200:#cfccc7; --ink-400:#9a968f; --ink-500:#6f6c67;
+  --accent-blue:#7f97a6; --accent-green:#8ba394; --accent-warm:#b3a08a; --accent-rose:#ab8c8c;
+  --gold:#c9b27a;
+}
+*{box-sizing:border-box}
+html,body{height:100%;margin:0}
+body{
+  font-family:-apple-system,BlinkMacSystemFont,"PingFang SC","Segoe UI",sans-serif;
+  background:var(--canvas); color:var(--ink-100); -webkit-font-smoothing:antialiased;
+}
+::-webkit-scrollbar{width:9px;height:9px}
+::-webkit-scrollbar-thumb{background:var(--surface-3);border-radius:6px}
+::-webkit-scrollbar-track{background:transparent}
+
+.brand-mark{width:30px;height:30px;border-radius:8px;position:relative;
+  background:linear-gradient(135deg,var(--accent-blue),var(--accent-green));opacity:.9}
+.brand-mark::after{content:"";position:absolute;inset:6px;border:1px solid rgba(255,255,255,.35);border-radius:4px}
+
+/* 分类 Tab */
+.cat-tab{padding:.45rem .95rem;border-radius:.6rem;font-size:.86rem;color:var(--ink-400);
+  cursor:pointer;transition:.18s;white-space:nowrap;border:1px solid transparent}
+.cat-tab:hover{color:var(--ink-200);background:var(--surface)}
+.cat-tab.active{color:var(--ink-100);background:var(--surface-2);border-color:var(--line-2)}
+.cat-tab.soon{opacity:.45;cursor:not-allowed}
+
+/* 筛选侧栏 */
+.filter-group{border-bottom:1px solid var(--line);padding:1rem 0}
+.filter-group:last-child{border-bottom:none}
+.filter-title{font-size:.72rem;letter-spacing:.14em;text-transform:uppercase;color:var(--ink-500);margin-bottom:.7rem}
+.chip{display:inline-flex;align-items:center;gap:.3rem;font-size:.78rem;padding:.3rem .6rem;border-radius:.5rem;
+  background:var(--surface);border:1px solid var(--line);color:var(--ink-400);cursor:pointer;transition:.15s;user-select:none}
+.chip:hover{color:var(--ink-200);border-color:var(--line-2)}
+.chip.on{background:var(--surface-3);color:var(--ink-100);border-color:var(--accent-blue)}
+.price-input{width:100%;background:var(--surface);border:1px solid var(--line);border-radius:.5rem;
+  padding:.4rem .6rem;color:var(--ink-100);font-size:.82rem}
+.price-input:focus{outline:none;border-color:var(--accent-blue)}
+.range-sep{color:var(--ink-500);font-size:.8rem}
+.switch-wrap{position:relative;display:inline-block;cursor:pointer}
+.switch-wrap input{position:absolute;opacity:0;width:0;height:0}
+.switch{display:block;width:34px;height:18px;border-radius:999px;background:var(--surface-3);
+  border:1px solid var(--line);transition:.2s;position:relative}
+.switch::after{content:"";position:absolute;top:2px;left:2px;width:12px;height:12px;border-radius:50%;
+  background:var(--ink-400);transition:.2s}
+.switch-wrap input:checked + .switch{background:var(--accent-blue);border-color:var(--accent-blue)}
+.switch-wrap input:checked + .switch::after{transform:translateX(16px);background:#12131a}
+code{font-family:ui-monospace,Menlo,monospace;font-size:.72rem;background:var(--surface);padding:.05rem .3rem;border-radius:.3rem;color:var(--ink-200)}
+
+/* 卡片网格：种类维度（最低价聚合视图） */
+.type-card{background:linear-gradient(160deg,rgba(255,255,255,.045),rgba(255,255,255,.012));
+  border:1px solid var(--line);border-radius:.9rem;padding:.85rem;display:flex;flex-direction:column;gap:.55rem;
+  cursor:pointer;transition:transform .22s,box-shadow .22s,border-color .22s;animation:fadeIn .35s ease;position:relative}
+.type-card:hover{transform:translateY(-4px);border-color:var(--line-2);box-shadow:0 16px 30px -14px rgba(0,0,0,.5)}
+.type-card .thumb{width:100%;aspect-ratio:4/3;border-radius:.6rem;object-fit:cover;background:var(--surface-2)}
+.type-card .thumb-ph{width:100%;aspect-ratio:4/3;border-radius:.6rem;display:flex;align-items:center;justify-content:center;
+  background:var(--surface-2);color:var(--ink-500);font-size:.75rem}
+.type-card .name{font-size:.9rem;font-weight:500;color:var(--ink-100);line-height:1.3}
+.type-card .desc{font-size:.72rem;color:var(--ink-400)}
+.badge{position:absolute;top:.7rem;left:.7rem;font-size:.66rem;padding:.12rem .45rem;border-radius:999px;
+  background:rgba(0,0,0,.45);backdrop-filter:blur(4px);color:var(--ink-200);border:1px solid var(--line)}
+.min-price{font-size:1.15rem;font-weight:600;color:var(--accent-warm)}
+.min-price .cur{font-size:.8rem;font-weight:400;opacity:.7}
+.count-pill{font-size:.7rem;color:var(--ink-400);background:var(--surface);border:1px solid var(--line);
+  border-radius:999px;padding:.1rem .5rem}
+.tag{display:inline-flex;font-size:.68rem;padding:.1rem .45rem;border-radius:999px;
+  background:rgba(255,255,255,.06);color:var(--ink-400)}
+
+/* 售卖信息表（点击卡片后的抽屉） */
+.sell-row{display:grid;grid-template-columns:1.4fr .8fr .8fr auto;gap:.5rem;align-items:center;
+  padding:.7rem .9rem;border-radius:.6rem;transition:background .15s}
+.sell-row:hover{background:var(--surface)}
+.sell-row+.sell-row{border-top:1px solid var(--line)}
+.sell-price{font-size:1rem;font-weight:600;color:var(--accent-warm)}
+.link-btn{font-size:.76rem;color:var(--ink-300,#b5b1ab);border:1px solid var(--line);border-radius:.5rem;
+  padding:.3rem .7rem;transition:.15s;text-decoration:none;white-space:nowrap}
+.link-btn:hover{color:var(--ink-100);border-color:var(--line-2)}
+
+/* 抽屉 */
+.drawer-mask{position:fixed;inset:0;background:rgba(8,8,10,.55);backdrop-filter:blur(3px);z-index:40;
+  opacity:0;pointer-events:none;transition:opacity .25s}
+.drawer-mask.open{opacity:1;pointer-events:auto}
+.drawer{position:fixed;top:0;right:0;height:100%;width:min(560px,92vw);background:var(--surface);
+  border-left:1px solid var(--line);z-index:41;transform:translateX(100%);transition:transform .28s cubic-bezier(.4,0,.2,1);
+  display:flex;flex-direction:column}
+.drawer.open{transform:translateX(0)}
+
+/* 状态点 */
+.dot{width:8px;height:8px;border-radius:50%;background:var(--ink-500);box-shadow:0 0 0 3px rgba(255,255,255,.04)}
+.dot.ok{background:var(--accent-green)}
+.dot.warn{background:var(--accent-warm)}
+.dot.err{background:var(--accent-rose)}
+
+.skeleton{background:linear-gradient(90deg,var(--surface) 25%,var(--surface-2) 37%,var(--surface) 63%);
+  background-size:400% 100%;animation:shimmer 1.4s ease infinite;border-radius:.6rem}
+@keyframes shimmer{0%{background-position:100% 0}100%{background-position:-100% 0}}
+@keyframes fadeIn{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:translateY(0)}}
+
+.sort-select{background:var(--surface);border:1px solid var(--line);border-radius:.55rem;color:var(--ink-200);
+  font-size:.82rem;padding:.4rem .7rem;cursor:pointer}
+.sort-select:focus{outline:none;border-color:var(--accent-blue)}
+.search-box{background:var(--surface);border:1px solid var(--line);border-radius:.6rem;padding:.5rem .85rem;
+  color:var(--ink-100);font-size:.85rem;width:260px}
+.search-box:focus{outline:none;border-color:var(--accent-blue)}
+.ghost-btn{font-size:.78rem;color:var(--ink-400);cursor:pointer;padding:.3rem .5rem;border-radius:.5rem}
+.ghost-btn:hover{color:var(--ink-200);background:var(--surface)}
+.hidden{display:none}
+</style>
+</head>
+<body>
+<div class="flex min-h-screen">
+  <!-- ===== 顶部栏 ===== -->
+  <header class="fixed top-0 left-0 right-0 z-30 flex items-center justify-between px-6 h-16 border-b"
+          style="border-color:var(--line);background:rgba(21,22,26,.85);backdrop-filter:blur(10px)">
+    <div class="flex items-center gap-3">
+      <div class="brand-mark"></div>
+      <div>
+        <p class="text-xs tracking-[0.2em] uppercase" style="color:var(--ink-500)">CBG Market</p>
+        <p class="text-sm font-medium">藏宝阁皮肤市场</p>
+      </div>
+    </div>
+    <div class="flex items-center gap-4">
+      <input id="search" class="search-box" placeholder="搜索皮肤名称…" />
+      <div class="flex items-center gap-2 px-3 py-1.5 rounded-lg" style="background:rgba(255,255,255,.03);border:1px solid var(--line)">
+        <span id="dot" class="dot"></span>
+        <span id="status-text" class="text-xs" style="color:var(--ink-200)">加载中</span>
+        <span id="status-meta" class="text-xs" style="color:var(--ink-500)">—</span>
+      </div>
+    </div>
+  </header>
+
+  <!-- ===== 左侧筛选栏 ===== -->
+  <aside class="fixed top-16 left-0 bottom-0 w-64 border-r overflow-y-auto px-5 py-5"
+         style="border-color:var(--line)">
+    <div class="flex items-center justify-between">
+      <p class="filter-title" style="margin:0">筛选条件</p>
+      <span id="reset-filters" class="ghost-btn">重置</span>
+    </div>
+
+    <div class="filter-group">
+      <p class="filter-title">分类</p>
+      <div class="flex flex-col gap-1" id="cat-list">
+        <div class="cat-tab active" data-cat="all">全部皮肤</div>
+        <div class="cat-tab" data-cat="英雄皮肤">英雄皮肤</div>
+        <div class="cat-tab" data-cat="兵器皮肤">兵器皮肤</div>
+        <div class="cat-tab soon" title="接口已知（kindid=5,6），待接入">道具（待接入）</div>
+      </div>
+    </div>
+
+    <div class="filter-group">
+      <p class="filter-title">最低价区间（元）</p>
+      <div class="flex items-center gap-2">
+        <input id="price-min" class="price-input" type="number" min="0" placeholder="最低" />
+        <span class="range-sep">—</span>
+        <input id="price-max" class="price-input" type="number" min="0" placeholder="最高" />
+      </div>
+      <div class="flex gap-1.5 mt-2 flex-wrap" id="price-presets">
+        <span class="chip" data-min="0" data-max="500">≤500</span>
+        <span class="chip" data-min="500" data-max="2000">500-2000</span>
+        <span class="chip" data-min="2000" data-max="10000">2k-1w</span>
+        <span class="chip" data-min="10000" data-max="">1w+</span>
+      </div>
+    </div>
+
+    <div class="filter-group">
+      <p class="filter-title">仅看有货</p>
+      <label class="flex items-center gap-2 text-sm cursor-pointer" style="color:var(--ink-200)">
+        <input type="checkbox" id="only-onsale" checked /> 隐藏无在售数据的种类
+      </label>
+    </div>
+
+    <div class="filter-group">
+      <div class="flex items-center justify-between">
+        <p class="filter-title" style="margin:0">星格筛选</p>
+        <label class="switch-wrap" title="启用后会触发实时查询">
+          <input type="checkbox" id="star-enabled" />
+          <span class="switch"></span>
+        </label>
+      </div>
+      <div id="star-panel" class="mt-3 hidden">
+        <p class="text-xs mb-2" style="color:var(--ink-500)">星级（variation_unlock_num）</p>
+        <div class="flex gap-1.5" id="star-level">
+          <span class="chip" data-lv="1">1星</span>
+          <span class="chip" data-lv="2">2星</span>
+          <span class="chip" data-lv="3">3星</span>
+        </div>
+        <p class="text-xs mt-3 mb-2" style="color:var(--ink-500)">星格值（星格1-4）</p>
+        <div class="grid grid-cols-2 gap-2">
+          <input class="price-input star-slot" data-slot="0" type="number" placeholder="星格1" />
+          <input class="price-input star-slot" data-slot="1" type="number" placeholder="星格2" />
+          <input class="price-input star-slot" data-slot="2" type="number" placeholder="星格3" />
+          <input class="price-input star-slot" data-slot="3" type="number" placeholder="星格4" />
+        </div>
+        <p class="text-xs mt-3" style="color:var(--accent-warm);line-height:1.5">
+          ⚠ 星格是<strong>个体商品维度</strong>，列表接口不返回，启用后需对藏宝阁发起
+          <strong>实时查询</strong>（非缓存）。参数直接透传给站点过滤，语义未在命中样本上验证过。
+        </p>
+      </div>
+      <p id="star-off-hint" class="text-xs mt-2" style="color:var(--ink-500);line-height:1.5">
+        默认关闭。星格来自 <code>variation_*</code> 参数，是本项目真正"丰富的条件筛选"维度。
+      </p>
+    </div>
+  </aside>
+
+  <!-- ===== 主体 ===== -->
+  <main class="flex-1 ml-64 mt-16 flex flex-col min-h-screen">
+    <div class="flex items-center justify-between px-8 py-4 border-b" style="border-color:var(--line)">
+      <div class="flex items-center gap-3">
+        <h1 id="result-title" class="text-base font-medium">全部皮肤</h1>
+        <span id="result-count" class="count-pill">—</span>
+      </div>
+      <div class="flex items-center gap-3">
+        <span class="text-xs" style="color:var(--ink-500)">排序</span>
+        <select id="sort" class="sort-select">
+          <option value="price-asc">最低价 ↑</option>
+          <option value="price-desc">最低价 ↓</option>
+          <option value="count-desc">在售数量 ↓</option>
+          <option value="recent">最近更新</option>
+        </select>
+      </div>
+    </div>
+
+    <section class="flex-1 px-8 py-6 overflow-y-auto">
+      <div id="empty" class="hidden text-center text-sm mt-24" style="color:var(--ink-400)">
+        没有符合条件的皮肤
+      </div>
+      <div id="grid" class="grid gap-4" style="grid-template-columns:repeat(auto-fill,minmax(220px,1fr))"></div>
+    </section>
+  </main>
+</div>
+
+<!-- ===== 售卖信息抽屉 ===== -->
+<div id="mask" class="drawer-mask"></div>
+<aside id="drawer" class="drawer">
+  <div class="flex items-start justify-between px-6 py-5 border-b" style="border-color:var(--line)">
+    <div class="flex gap-4">
+      <img id="d-thumb" class="w-20 h-16 rounded-lg object-cover" style="background:var(--surface-2)" alt="" />
+      <div>
+        <h2 id="d-name" class="text-base font-medium">—</h2>
+        <p id="d-desc" class="text-xs mt-1" style="color:var(--ink-400)">—</p>
+        <div class="flex items-center gap-3 mt-2">
+          <span class="min-price" id="d-minprice">—</span>
+          <span class="count-pill" id="d-count">—</span>
+        </div>
+      </div>
+    </div>
+    <span id="drawer-close" class="ghost-btn text-lg leading-none">✕</span>
+  </div>
+
+  <div class="px-6 py-3 border-b flex items-center justify-between" style="border-color:var(--line)">
+    <p class="text-xs" style="color:var(--ink-500)">当前售卖信息</p>
+    <select id="d-sort" class="sort-select">
+      <option value="price-asc">价格 ↑</option>
+      <option value="price-desc">价格 ↓</option>
+      <option value="time-desc">上架时间 ↓</option>
+    </select>
+  </div>
+
+  <!-- 区服筛选：区服只在个体挂单上有（server_name），所以放在抽屉里按当前皮肤的在售区服动态生成 -->
+  <div class="px-6 py-2.5 border-b" style="border-color:var(--line)">
+    <div class="flex items-center gap-2 flex-wrap" id="d-server-filter"></div>
+  </div>
+
+  <div id="d-list" class="flex-1 overflow-y-auto px-4 py-2"></div>
+
+  <div class="px-6 py-3 border-t text-xs" style="border-color:var(--line);color:var(--ink-500)">
+    「查看/下单」仅跳转藏宝阁下单确认页，工具不代为下单，支付由本人完成。
+  </div>
+</aside>
+
+<script>
+/* =====================================================================
+ * 交互原型逻辑。
+ * 数据来源优先真实后端（/api/market/types、/api/market/items?equipType=...），
+ * 拉取失败时自动回退到内置 mock 数据，保证这个 HTML 单文件双击也能看效果。
+ * ===================================================================== */
+
+// ---------- Mock 数据（后端不可用时的回退） ----------
+// 字段全部对齐源项目真实可拿到的字段：
+//   种类层（get_aggregate_equip_type_list）：typeName / typeDesc / minPrice / img / updatedAt
+//   在售数量 onSaleCount 由 recommend.py 的个体商品数聚合得到
+// 没有"品质/稀有度"字段——列表接口不返回，variation_info 抓包一直是空对象。
+const MOCK_TYPES = [
+  { equipType:'3001', category:'英雄皮肤', typeName:'天海·踏雪寻梅', typeDesc:'限定套装', minPrice:1280, onSaleCount:14, img:null, updatedAt:Date.now()-120000 },
+  { equipType:'3002', category:'英雄皮肤', typeName:'宁红夜·赤炼', typeDesc:'', minPrice:860, onSaleCount:31, img:null, updatedAt:Date.now()-60000 },
+  { equipType:'3003', category:'英雄皮肤', typeName:'季沧海·沧澜', typeDesc:'', minPrice:420, onSaleCount:52, img:null, updatedAt:Date.now()-30000 },
+  { equipType:'3004', category:'英雄皮肤', typeName:'岳山·铁衣', typeDesc:'', minPrice:180, onSaleCount:88, img:null, updatedAt:Date.now()-200000 },
+  { equipType:'3005', category:'英雄皮肤', typeName:'胡为·浮生', typeDesc:'联动皮肤', minPrice:3200, onSaleCount:6, img:null, updatedAt:Date.now()-15000 },
+  { equipType:'3006', category:'英雄皮肤', typeName:'特木尔·苍狼', typeDesc:'', minPrice:null, onSaleCount:0, img:null, updatedAt:Date.now()-500000 },
+  { equipType:'4001', category:'兵器皮肤', typeName:'长刀·龙吟', typeDesc:'', minPrice:2400, onSaleCount:9, img:null, updatedAt:Date.now()-90000 },
+  { equipType:'4002', category:'兵器皮肤', typeName:'长枪·破晓', typeDesc:'', minPrice:640, onSaleCount:22, img:null, updatedAt:Date.now()-45000 },
+  { equipType:'4003', category:'兵器皮肤', typeName:'太刀·月华', typeDesc:'', minPrice:310, onSaleCount:40, img:null, updatedAt:Date.now()-75000 },
+  { equipType:'4004', category:'兵器皮肤', typeName:'匕首·夜影', typeDesc:'', minPrice:95, onSaleCount:120, img:null, updatedAt:Date.now()-250000 },
+];
+
+const MOCK_SERVERS = ['官方一区','官方二区','跨区三','电信一区','网通二区'];
+
+function mockItems(type){
+  const n = type.onSaleCount || 0;
+  const base = type.minPrice || 100;
+  const out = [];
+  for(let i=0;i<Math.min(n,20);i++){
+    const price = Math.round(base + base*0.9*Math.random());
+    out.push({
+      equipId:`${type.equipType}-${i}`,
+      price: Math.max(price, base),
+      serverName: MOCK_SERVERS[i % MOCK_SERVERS.length],
+      sellingTime: new Date(Date.now()-i*3600_000).toISOString(),
+      // 星格是"个体商品"维度、且真实场景下要靠实时查询才能拿到（列表接口不返回）。
+      // 这里只在 mock 里造出来演示星格筛选的交互，真实模式下由后端实时查询返回。
+      starLevel: (i % 3) + 1,
+      orderConfirmUrl:'https://yjwujian.cbg.163.com/cgi/mweb/',
+    });
+  }
+  return out.sort((a,b)=>a.price-b.price);
+}
+
+// ---------- 状态 ----------
+const S = {
+  types: [],
+  filtered: [],
+  cat: 'all',
+  search: '',
+  priceMin: null,
+  priceMax: null,
+  onlyOnsale: true,
+  sort: 'price-asc',
+  // 星格筛选：源项目真实的筛选维度（variation_unlock_num 星级 + variation_first~fourth 星格值）。
+  // 真实模式下会触发实时查询（列表接口不返回星格），所以默认关闭。
+  starEnabled: false,
+  starLevel: null,           // 1 / 2 / 3
+  starSlots: [null,null,null,null], // 对应 variation_first/second/third/fourth
+  usingMock: false,
+};
+
+const $ = (id)=>document.getElementById(id);
+const fmt = (n)=> Number(n).toLocaleString('zh-CN',{maximumFractionDigits:2});
+function timeAgo(ts){
+  const s = Math.floor((Date.now()-ts)/1000);
+  if(s<60) return `${s}秒前`; if(s<3600) return `${Math.floor(s/60)}分钟前`;
+  if(s<86400) return `${Math.floor(s/3600)}小时前`; return `${Math.floor(s/86400)}天前`;
+}
+// ---------- 数据加载 ----------
+async function loadTypes(){
+  try{
+    // 真实后端约定：返回聚合的"种类 + 最低价 + 在售数量"列表（见调研方案）
+    const res = await fetch('/api/market/types');
+    if(!res.ok) throw new Error('no endpoint');
+    const data = await res.json();
+    S.types = data.map(normalizeType);
+    S.usingMock = false;
+  }catch{
+    S.types = MOCK_TYPES.map(normalizeType);
+    S.usingMock = true;
+  }
+  applyFilters();
+}
+
+function normalizeType(t){
+  const rawCat = t.category;
+  const category = rawCat === 'hero' ? '英雄皮肤' : rawCat === 'weapon' ? '兵器皮肤' : (rawCat || '英雄皮肤');
+  return {
+    equipType: String(t.equipType),
+    category,
+    typeName: t.typeName || '未命名',
+    typeDesc: t.typeDesc || '',
+    minPrice: t.minPrice != null ? Number(t.minPrice) : null,
+    onSaleCount: t.onSaleCount != null ? t.onSaleCount : (t.count != null ? t.count : null),
+    img: t.localImagePath || t.img || null,
+    updatedAt: t.updatedAt ? (typeof t.updatedAt === 'number' ? t.updatedAt : Date.parse(t.updatedAt)) : (t.lastSeenAt ? Date.parse(t.lastSeenAt) : Date.now()),
+  };
+}
+
+async function loadItems(type){
+  // 真实模式：若启用了星格筛选，走带 variation_* 参数的实时查询接口（后端对应
+  // searchItemsWithVariationFilter）；否则读缓存的个体商品接口。
+  const starQuery = S.starEnabled
+    ? '&' + new URLSearchParams(Object.entries({
+        variation_unlock_num: S.starLevel || '',
+        variation_first: S.starSlots[0] ?? '',
+        variation_second: S.starSlots[1] ?? '',
+        variation_third: S.starSlots[2] ?? '',
+        variation_fourth: S.starSlots[3] ?? '',
+      }).filter(([,v])=>v!=='')).toString()
+    : '';
+  try{
+    const res = await fetch(`/api/market/items?equipType=${encodeURIComponent(type.equipType)}${starQuery}`);
+    if(!res.ok) throw new Error('no endpoint');
+    const data = await res.json();
+    return data.map(i=>({
+      equipId: i.equipId, price: Number(i.price), serverName: i.serverName,
+      sellingTime: i.sellingTime, starLevel: i.starLevel ?? null, orderConfirmUrl: i.orderConfirmUrl,
+    }));
+  }catch{
+    let items = mockItems(type);
+    if(S.starEnabled && S.starLevel) items = items.filter(i=>i.starLevel === S.starLevel);
+    return items;
+  }
+}
+
+// ---------- 筛选 + 排序 ----------
+function applyFilters(){
+  let list = S.types.slice();
+  if(S.cat !== 'all') list = list.filter(t=>t.category === S.cat);
+  if(S.search) list = list.filter(t=>t.typeName.toLowerCase().includes(S.search.toLowerCase()));
+  if(S.onlyOnsale) list = list.filter(t=>t.minPrice != null && (t.onSaleCount == null || t.onSaleCount > 0));
+  if(S.priceMin != null) list = list.filter(t=>t.minPrice != null && t.minPrice >= S.priceMin);
+  if(S.priceMax != null) list = list.filter(t=>t.minPrice != null && t.minPrice <= S.priceMax);
+
+  list.sort((a,b)=>{
+    const pa=a.minPrice ?? Infinity, pb=b.minPrice ?? Infinity;
+    switch(S.sort){
+      case 'price-asc': return pa-pb;
+      case 'price-desc': return pb-pa;
+      case 'count-desc': return (b.onSaleCount??0)-(a.onSaleCount??0);
+      case 'recent': return b.updatedAt-a.updatedAt;
+    }
+    return 0;
+  });
+  S.filtered = list;
+  renderGrid();
+}
+
+// ---------- 渲染 ----------
+function typeCard(t){
+  const thumb = t.img
+    ? `<img class="thumb" src="${t.img}" alt="" loading="lazy" onerror="this.replaceWith(Object.assign(document.createElement('div'),{className:'thumb-ph',textContent:'无图'}))" />`
+    : `<div class="thumb-ph">无图</div>`;
+  const price = t.minPrice != null
+    ? `<span class="min-price"><span class="cur">¥</span>${fmt(t.minPrice)}</span>`
+    : `<span class="text-xs" style="color:var(--ink-500)">暂无在售</span>`;
+  const count = t.onSaleCount != null ? `<span class="count-pill">在售 ${t.onSaleCount}</span>` : '';
+  return `
+  <div class="type-card" data-type="${t.equipType}">
+    <span class="badge">${t.category}</span>
+    ${thumb}
+    <div class="flex items-center gap-2">
+      <span class="text-xs" style="color:var(--ink-500)">更新于 ${timeAgo(t.updatedAt)}</span>
+    </div>
+    <div>
+      <p class="name">${t.typeName}</p>
+      <p class="desc">${t.typeDesc || ''}</p>
+    </div>
+    <div class="flex items-end justify-between mt-auto pt-1">
+      ${price}${count}
+    </div>
+  </div>`;
+}
+
+function renderGrid(){
+  $('result-title').textContent = S.cat === 'all' ? '全部皮肤' : S.cat;
+  $('result-count').textContent = `${S.filtered.length} 种`;
+  if(!S.filtered.length){
+    $('grid').innerHTML=''; $('empty').classList.remove('hidden'); return;
+  }
+  $('empty').classList.add('hidden');
+  $('grid').innerHTML = S.filtered.map(typeCard).join('');
+}
+
+// ---------- 抽屉：某款皮肤的售卖信息 ----------
+let drawerType = null, drawerItems = [];
+async function openDrawer(equipType){
+  const t = S.types.find(x=>x.equipType === equipType);
+  if(!t) return;
+  drawerType = t;
+  $('mask').classList.add('open'); $('drawer').classList.add('open');
+  $('d-name').textContent = t.typeName;
+  $('d-desc').textContent = t.typeDesc || '';
+  $('d-minprice').innerHTML = t.minPrice!=null?`<span class="cur">¥</span>${fmt(t.minPrice)}`:'—';
+  $('d-count').textContent = t.onSaleCount!=null?`在售 ${t.onSaleCount} 件`:'—';
+  $('d-thumb').src = t.img || '';
+  $('d-list').innerHTML = `<div class="p-4 space-y-2">${'<div class="skeleton h-14"></div>'.repeat(4)}</div>`;
+  $('d-server-filter').innerHTML = '';
+  drawerServer = 'all';
+  drawerItems = await loadItems(t);
+  renderServerFilter();
+  renderDrawerList();
+}
+
+let drawerServer = 'all';
+// 区服只在个体挂单上有（server_name），按当前皮肤实际在售的区服动态生成 chip
+function renderServerFilter(){
+  const servers = [...new Set(drawerItems.map(i=>i.serverName).filter(Boolean))];
+  if(servers.length <= 1){ $('d-server-filter').innerHTML=''; return; }
+  $('d-server-filter').innerHTML =
+    `<span class="text-xs" style="color:var(--ink-500);margin-right:.2rem">区服</span>` +
+    [`<span class="chip ${drawerServer==='all'?'on':''}" data-server="all">全部</span>`]
+      .concat(servers.map(s=>`<span class="chip ${drawerServer===s?'on':''}" data-server="${s}">${s}</span>`))
+      .join('');
+}
+function renderDrawerList(){
+  const sort = $('d-sort').value;
+  let list = drawerItems.slice();
+  if(drawerServer !== 'all') list = list.filter(i=>i.serverName === drawerServer);
+  list.sort((a,b)=>{
+    if(sort==='price-asc') return a.price-b.price;
+    if(sort==='price-desc') return b.price-a.price;
+    if(sort==='time-desc') return Date.parse(b.sellingTime||0)-Date.parse(a.sellingTime||0);
+    return 0;
+  });
+  if(!list.length){ $('d-list').innerHTML=`<p class="text-center text-sm py-16" style="color:var(--ink-400)">当前没有符合条件的在售商品</p>`; return; }
+  $('d-list').innerHTML = list.map(i=>`
+    <div class="sell-row">
+      <div>
+        <span class="sell-price"><span style="font-size:.75rem;opacity:.7">¥</span>${fmt(i.price)}</span>
+        <p class="text-xs mt-0.5" style="color:var(--ink-500)">${i.sellingTime?timeAgo(Date.parse(i.sellingTime)):''}</p>
+      </div>
+      <span class="text-xs" style="color:var(--ink-400)">${i.serverName||'—'}</span>
+      <span class="text-xs" style="color:var(--ink-500)">${i.starLevel?`★${i.starLevel}`:`#${String(i.equipId).slice(-6)}`}</span>
+      <a class="link-btn" href="${i.orderConfirmUrl}" target="_blank" rel="noopener">查看/下单</a>
+    </div>`).join('');
+}
+function closeDrawer(){ $('mask').classList.remove('open'); $('drawer').classList.remove('open'); }
+
+// ---------- 状态栏 ----------
+async function pollStatus(){
+  try{
+    const res = await fetch('/api/status');
+    if(!res.ok) throw 0;
+    const s = await res.json();
+    const map={ok:['ok','运行正常'],loading:['','加载中'],needs_verification:['warn','需要人工验证'],
+      not_logged_in:['warn','未登录'],error:['err','出错']};
+    const [cls,label]=map[s.status]||['','未知'];
+    $('dot').className='dot'+(cls?` ${cls}`:'');
+    $('status-text').textContent=label;
+    $('status-meta').textContent=`· 共 ${s.itemCount??0} 件`;
+  }catch{
+    $('dot').className='dot warn';
+    $('status-text').textContent = S.usingMock?'演示数据':'离线';
+    $('status-meta').textContent = S.usingMock?'· 后端未连接':'';
+  }
+}
+// ---------- 事件绑定 ----------
+$('cat-list').addEventListener('click',(e)=>{
+  const tab=e.target.closest('.cat-tab'); if(!tab||tab.classList.contains('soon'))return;
+  document.querySelectorAll('.cat-tab').forEach(t=>t.classList.remove('active'));
+  tab.classList.add('active'); S.cat=tab.dataset.cat; applyFilters();
+});
+
+let searchTimer=null;
+$('search').addEventListener('input',(e)=>{
+  clearTimeout(searchTimer);
+  searchTimer=setTimeout(()=>{ S.search=e.target.value.trim(); applyFilters(); },200);
+});
+
+$('price-min').addEventListener('input',(e)=>{ S.priceMin=e.target.value===''?null:Number(e.target.value); applyFilters(); });
+$('price-max').addEventListener('input',(e)=>{ S.priceMax=e.target.value===''?null:Number(e.target.value); applyFilters(); });
+
+$('price-presets').addEventListener('click',(e)=>{
+  const chip=e.target.closest('.chip'); if(!chip)return;
+  const on=chip.classList.contains('on');
+  document.querySelectorAll('#price-presets .chip').forEach(c=>c.classList.remove('on'));
+  if(on){ S.priceMin=S.priceMax=null; $('price-min').value=$('price-max').value=''; }
+  else{
+    chip.classList.add('on');
+    S.priceMin=chip.dataset.min===''?null:Number(chip.dataset.min);
+    S.priceMax=chip.dataset.max===''?null:Number(chip.dataset.max);
+    $('price-min').value=chip.dataset.min; $('price-max').value=chip.dataset.max;
+  }
+  applyFilters();
+});
+
+$('only-onsale').addEventListener('change',(e)=>{ S.onlyOnsale=e.target.checked; applyFilters(); });
+$('sort').addEventListener('change',(e)=>{ S.sort=e.target.value; applyFilters(); });
+$('d-sort').addEventListener('change',renderDrawerList);
+
+// 星格筛选：开关 + 星级 + 星格值。这几个筛选影响的是"个体挂单"，真实模式下触发实时查询，
+// 所以只在打开抽屉重新 loadItems() 时生效，不参与种类网格的本地过滤。
+$('star-enabled').addEventListener('change',(e)=>{
+  S.starEnabled=e.target.checked;
+  $('star-panel').classList.toggle('hidden', !S.starEnabled);
+  $('star-off-hint').classList.toggle('hidden', S.starEnabled);
+});
+$('star-level').addEventListener('click',(e)=>{
+  const chip=e.target.closest('.chip'); if(!chip)return;
+  const lv=Number(chip.dataset.lv);
+  const on=chip.classList.contains('on');
+  document.querySelectorAll('#star-level .chip').forEach(c=>c.classList.remove('on'));
+  if(on){ S.starLevel=null; }
+  else{ chip.classList.add('on'); S.starLevel=lv; }
+});
+document.querySelectorAll('.star-slot').forEach(inp=>{
+  inp.addEventListener('input',()=>{
+    S.starSlots[Number(inp.dataset.slot)] = inp.value===''?null:Number(inp.value);
+  });
+});
+
+// 抽屉里的区服筛选
+$('d-server-filter').addEventListener('click',(e)=>{
+  const chip=e.target.closest('.chip'); if(!chip)return;
+  drawerServer=chip.dataset.server;
+  renderServerFilter(); renderDrawerList();
+});
+
+$('reset-filters').addEventListener('click',()=>{
+  S.search=''; S.priceMin=S.priceMax=null; S.onlyOnsale=true;
+  S.starEnabled=false; S.starLevel=null; S.starSlots=[null,null,null,null];
+  $('search').value=''; $('price-min').value=''; $('price-max').value='';
+  document.querySelectorAll('.chip').forEach(c=>c.classList.remove('on'));
+  document.querySelectorAll('.star-slot').forEach(i=>i.value='');
+  $('only-onsale').checked=true;
+  $('star-enabled').checked=false;
+  $('star-panel').classList.add('hidden');
+  $('star-off-hint').classList.remove('hidden');
+  applyFilters();
+});
+
+$('grid').addEventListener('click',(e)=>{
+  const card=e.target.closest('.type-card'); if(!card)return;
+  openDrawer(card.dataset.type);
+});
+$('mask').addEventListener('click',closeDrawer);
+$('drawer-close').addEventListener('click',closeDrawer);
+document.addEventListener('keydown',(e)=>{ if(e.key==='Escape')closeDrawer(); });
+
+// ---------- 初始化 ----------
+(async function init(){
+  await loadTypes();
+  pollStatus();
+  setInterval(pollStatus, 5000);
+  // 数据延迟刷新（允许延迟，非实时）——每 30 秒重拉一次聚合列表
+  setInterval(loadTypes, 30000);
+})();
+</script>
+</body>
+</html>
