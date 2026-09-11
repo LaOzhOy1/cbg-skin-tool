@@ -178,7 +178,7 @@ cbg-skin-tool/
     state.js        # 内存态：商品快照、轮询状态、验证流程状态
     cookieJar.js      # 读取 storageState.json 拼 Cookie 头
     cbgClient.js       # 纯 HTTP 版接口调用，识别 CAPTCHA_AUTH / AUTO_LOGIN / MOBILE_AUTH
-    poller.js           # 定时轮询循环（默认 20 秒 ±20% 随机抖动，连续失败 3 次自动熔断暂停）
+    poller.js           # 定时轮询循环（默认 20 秒 ±20% 抖动；分片轮询 + 请求间随机停顿降低风控风险；连续失败 3 次自动熔断暂停）
     loginFlow.js          # 打开可见浏览器，等待人工登录/过验证码，保存登录态（按账号区分）
     marketRoutes.js        # /api/market/* 只读接口：types(聚合最低价) / items(挂单) / price-history(时序)
     priceHistory.js         # 历史最低价时序存储（node:sqlite，按种类+小时桶，零额外请求，数据源是 poller 的 seenTypes）

@@ -263,23 +263,65 @@ export async function fetchUserProfile() {
   };
 }
 
+function sleep(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
 /**
- * 抓取全部分类下的全部在售个体商品，顺带把这一轮见过的"种类"摘要一起返回
- * （seenTypes，用于 itemTypeCache.js 的 7 天滚动缓存）——这份种类数据本来就在
- * fetchEquipTypes() 里飞了一次，这里只是不再丢弃，不产生任何新请求。
+ * 稳定分片：把一个 equipType 映射到 [0, shardCount) 的某个分片，同一种类每次都落到
+ * 同一分片，保证"每种类每 shardCount 轮被深挖一次个体商品"。用简单字符串哈希即可，
+ * 不需要密码学强度，只要分布均匀且确定。
  */
-export async function fetchAllSkins() {
+export function shardOf(equipType, shardCount) {
+  if (shardCount <= 1) return 0;
+  const s = String(equipType);
+  let h = 0;
+  for (let i = 0; i < s.length; i++) h = (h * 31 + s.charCodeAt(i)) | 0;
+  return Math.abs(h) % shardCount;
+}
+
+/**
+ * 抓取在售个体商品 + 这一轮见过的"种类"摘要。
+ *
+ * 两层请求的处理方式不同（这是分片轮询的关键设计）：
+ * - 种类列表（get_aggregate_equip_type_list）：**每轮都全量拉**，只有 2 个请求
+ *   （每分类 1 个），但带回了所有种类的 min_price——所以"实时最低价"、seenTypes、
+ *   itemTypeCache、价格时序对**全部种类**都是每轮最新的，分片不影响它们。
+ * - 个体商品（recommend.py，请求量的大头）：**只深挖当前分片的种类**，其余种类这一轮
+ *   跳过。配合 poller 轮流切分片，每种类每 shardCount 轮被完整刷新一次个体挂单。
+ *
+ * 每次 recommend.py 之前插入一段随机停顿（delayMs 区间内），把原本"背靠背连打几十个
+ * 请求"的脉冲摊平成"像人在慢慢翻页"，显著降低被风控判定为脚本的风险。
+ *
+ * @param {object} [opts]
+ * @param {number} [opts.shardCount=1] 分几片轮询（1 = 老行为，每轮全量深挖）
+ * @param {number} [opts.shardIndex=0] 本轮深挖哪一片
+ * @param {[number,number]} [opts.delayMs=[0,0]] 每次个体商品请求前的随机停顿区间(ms)
+ * @returns {{ items, seenTypes, refreshedTypes:string[], allTypes:string[] }}
+ *   items/refreshedTypes 只含本轮深挖的分片；allTypes 是本轮见过的全部种类（供 merge
+ *   时判断哪些种类已下架需要从快照剔除）。
+ */
+export async function fetchAllSkins({ shardCount = 1, shardIndex = 0, delayMs = [0, 0] } = {}) {
   const all = [];
   const seenTypes = [];
+  const refreshedTypes = [];
+  const allTypes = [];
+  const [minDelay, maxDelay] = delayMs;
+
   for (const category of CATEGORIES) {
     const types = await fetchEquipTypes(category);
     for (const typeInfo of types) {
       seenTypes.push(summarizeEquipType(category, typeInfo));
+      allTypes.push(String(typeInfo.equip_type));
+      // 只深挖属于本轮分片的种类；其余种类的最低价已经从种类列表拿到了。
+      if (shardOf(typeInfo.equip_type, shardCount) !== shardIndex) continue;
+      if (maxDelay > 0) await sleep(minDelay + Math.random() * (maxDelay - minDelay));
       const items = await fetchEquipItems(category, typeInfo.equip_type);
+      refreshedTypes.push(String(typeInfo.equip_type));
       for (const item of items) {
         all.push(normalizeItem(item, category, typeInfo));
       }
     }
   }
-  return { items: all, seenTypes };
+  return { items: all, seenTypes, refreshedTypes, allTypes };
 }

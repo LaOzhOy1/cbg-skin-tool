@@ -2,7 +2,7 @@
 // needs_verification / not_logged_in 并暂停轮询，同时自动打开人工验证窗口（除非已经开着），
 // 人工完成后自动恢复轮询。网页按钮 / `cbg-skin verify` 仍然可用，用于自动弹窗失败后手动重试。
 import { fetchAllSkins, CaptchaRequiredError, NotLoggedInError } from './cbgClient.js';
-import { setItems, setStatus, setNextPollAt } from './state.js';
+import { mergeItems, setStatus, setNextPollAt } from './state.js';
 import { runLoginFlow, isLoginFlowRunning } from './loginFlow.js';
 import { recordSeenTypes, pruneExpired } from './itemTypeCache.js';
 import { recordPriceHistory } from './priceHistory.js';
@@ -10,6 +10,19 @@ import { summarizeRisk, formatRiskBlock, RiskBlockedError } from './riskGuard.js
 
 const BASE_INTERVAL_MS = Number(process.env.POLL_INTERVAL_MS) || 20000;
 const JITTER_RATIO = 0.2; // ±20% 随机抖动，避免整点式请求
+
+// 分片轮询：把个体商品(recommend.py，请求量大头)按种类分成 SHARD_COUNT 片，每轮只深挖
+// 一片，轮流切换。种类列表(min_price/最低价)仍每轮全量拉，所以"实时最低价"不受影响，
+// 只有个体挂单快照按 SHARD_COUNT 轮补齐一次。默认 4 片 → 单轮 recommend.py 请求量砍到 ~1/4。
+const SHARD_COUNT = Math.max(1, Number(process.env.POLL_SHARD_COUNT) || 4);
+let shardCursor = 0;
+
+// 每次 recommend.py 请求前的随机停顿区间(ms)。把"背靠背连打"摊平成"像人在翻页"，
+// 是降低"被判定为脚本"风险最有效的一招。设 [0,0] 关闭（测试里用）。
+const REQUEST_DELAY_MS = [
+  Number(process.env.POLL_REQUEST_DELAY_MIN_MS) || 200,
+  Number(process.env.POLL_REQUEST_DELAY_MAX_MS) || 800,
+];
 
 // 连续报错熔断：同一错误连续出现还继续每 ~20 秒重试，本身就是在消耗账号的风控信任分
 // （2026-08-17 事故：接口持续返回 ERR 系统繁忙，poller 自动重试十几分钟无人制止，
@@ -36,9 +49,17 @@ async function tick() {
   }
 
   try {
-    const { items, seenTypes } = await fetchAllSkins();
+    const shardIndex = shardCursor % SHARD_COUNT;
+    const { items, seenTypes, refreshedTypes, allTypes } = await fetchAllSkins({
+      shardCount: SHARD_COUNT,
+      shardIndex,
+      delayMs: REQUEST_DELAY_MS,
+    });
+    shardCursor = (shardCursor + 1) % SHARD_COUNT;
     consecutiveErrors = 0;
-    setItems(items);
+    // 合并本轮分片到快照：只覆盖本轮深挖的种类，其余种类沿用上一轮（正常延迟），
+    // 已下架的种类从快照剔除。shardCount=1 时等价于全量替换。
+    mergeItems(items, refreshedTypes, allTypes);
     // 种类图片缓存：种类数据本来就在这轮请求里飞过，这里只是不再丢弃；
     // 下载图片是唯一新增的网络调用，且只在本地还没有缓存图时才下载一次。
     // 失败不影响主轮询流程——recordSeenTypes()/pruneExpired() 内部已经吞掉了

@@ -106,3 +106,15 @@
 **存储后端用 `node:sqlite`（内置 `DatabaseSync`）**，不是 JSON。理由：时序数据会持续增长、要按范围查询，带索引的 SQL 表比 JSON 全量读写合适；同时它零外部依赖、无需起数据库服务器，仍然符合项目"本地、单进程、无基础设施"的定位（这一点是相对 `store.js` 的 JSON 方案的**有意分叉**，不是要把 `store.js` 也迁走）。`node:sqlite` 目前是 experimental，import 时会打一条 `ExperimentalWarning`——`priceHistory.js` 里做了**只过滤这一条警告**的处理（import 前后临时替换 `process.emitWarning`，其余警告照常）。**因此 `package.json` 声明了 `engines.node >= 22.5.0`**（`DatabaseSync` 的最低可用版本），低于这个版本启动会报错。DB 文件落在 `data/priceHistory.db`（`data/` 已在 `.gitignore`，不提交）。
 
 **测试隔离**：`priceHistory.js` 导出 `_resetCacheForTest()`，把模块切到全新的 `:memory:` 库，每个用例从干净状态开始、**完全不碰磁盘**（`test/priceHistory.test.js` 覆盖分桶/跨桶/null 跳过/30 天清理/种类名更新）。
+
+## 轮询降风控：分片轮询 + 请求间随机停顿（`server/cbgClient.js` + `server/poller.js`，2026-09-09）
+
+背景：探测确认过 `fetchAllSkins()` 老实现一轮会**背靠背连打 ~34 个请求**（现实场景：2 个种类列表 + 32 个 `recommend.py`），20 秒一轮 7×24 常驻。这种"周期性脉冲式批量请求"是风控眼里最像脚本的特征（真人不可能 2 秒点开 34 个种类详情）。这个账号信任分本来就脆（被 `CAPTCHA_AUTH → MOBILE_AUTH` 升级过），所以做了两项针对性缓解——**都是纯请求节奏/分布的调整，不改变拉到的数据，也不新增任何接口**：
+
+1. **请求间随机停顿**：`fetchAllSkins()` 每次 `recommend.py`（请求量大头）之前 sleep 一段随机时间（默认 `[200,800]ms`，poller 用 `POLL_REQUEST_DELAY_MIN/MAX_MS` 配），把脉冲摊平成"像人在慢慢翻页"。这是降低"被判定为脚本"风险最有效的一招。
+
+2. **分片轮询**：把个体商品按 `shardOf(equipType, N)`（稳定字符串哈希）分成 `SHARD_COUNT` 片（默认 4，`POLL_SHARD_COUNT` 配），poller 每轮只深挖一片、轮流切换。**关键设计**：种类列表（`get_aggregate_equip_type_list`，带所有种类的 `min_price`）**仍每轮全量拉**——所以"实时最低价"、`seenTypes`、`itemTypeCache`、价格时序对全部种类每轮都是最新的，分片只影响"个体挂单快照"的补齐速度（每种类每 `SHARD_COUNT` 轮刷新一次挂单）。实测单轮请求从 ~34 降到 ~10。
+
+**快照合并（`state.js` 的 `mergeItems`）**：因为每轮只刷一片，不能再全量替换。`mergeItems(freshItems, refreshedTypes, allTypes)` 规则：本轮刷新的种类用新数据覆盖（含"刷完变 0 件就消失"）、本轮没刷但仍在售的种类沿用旧快照、不在 `allTypes` 里的种类（已下架）剔除。`SHARD_COUNT=1` 时 `refreshedTypes==allTypes`，退化为全量替换，等价于老的 `setItems`。`accounts.js` 切换账号时仍用 `setItems([])` 清空。
+
+**代价（可接受）**：个体挂单快照有最长 `SHARD_COUNT` 轮的补齐延迟（默认 4 轮 ≈ 80 秒），且 warmup 阶段 `/api/market/types` 的 `onSaleCount` 会偏小、逐轮补齐——但最低价始终是最新的，符合"允许延迟"的需求定位。`test/sharding.test.js` 覆盖 `shardOf` 稳定性/分布 + `mergeItems` 的覆盖/剔除/下架/全量退化。
