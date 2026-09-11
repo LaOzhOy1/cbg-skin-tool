@@ -4,6 +4,9 @@
   "private": true,
   "type": "module",
   "description": "永劫无间藏宝阁 - 英雄皮肤/兵器皮肤在售监控面板",
+  "engines": {
+    "node": ">=22.5.0"
+  },
   "bin": {
     "cbg-skin": "bin/cbg-skin.js"
   },

@@ -2,11 +2,13 @@
 
 ## 铁律：探测/调试藏宝阁接口时，禁止短时间内多次发请求
 
-这个账号历史上已经因为短时间内大量请求被风控标记（`CAPTCHA_AUTH` → `AUTO_LOGIN` → `MOBILE_AUTH` 逐级升级，详见 README「已知限制」）。风控信任分不容易涨回来，但很容易因为脚本式的高频探测再次跌下去。
+这个账号历史上已经因为短时间内大量请求被风控标记（`CAPTCHA_AUTH` → `AUTO_LOGIN` → `MOBILE_AUTH` 逐级升级，详见 README「已知限制」）。2026-08-17 又发生一次教训：验证窗口里浏览器探测正常，但纯 HTTP 轮询持续返回 `ERR 系统繁忙`，poller 每 ~20 秒自动重试了十几分钟无人制止，账号状态进一步受损。风控信任分不容易涨回来，但很容易因为脚本式的高频探测再次跌下去。
 
 **因此：**
+- **网络环境优先，先查网络再发请求**：任何会碰藏宝阁的操作之前（启动服务、打开验证窗口、手动调试都算），先确认网络环境——没有挂代理/VPN（检查 `HTTP_PROXY`/`HTTPS_PROXY`/`ALL_PROXY` 等环境变量和系统代理设置），出口 IP 是正常的家庭宽带/手机流量 IP 而不是云服务器机房 IP。环境不对先解决环境，一个请求都不要发。
 - 任何调试、排查、验证登录态是否恢复，都不允许写脚本连续 `fetch` 真实接口（`get_aggregate_equip_type_list`、`recommend.py` 等）去反复试探。
 - 需要确认状态时，优先读本地已有信号：`/api/status`、`/api/verify/status`、日志、`storageState.json` 时间戳，而不是直接打真实站点。
+- **连续报错必须立刻止血，不允许旁观自动重试**：看到同一个错误连续出现（≥2 次），马上停止服务（`kill` 掉进程）或至少让请求源停下来，排查清楚原因再恢复。本地服务自己的定时循环同样是请求源——poller ~20 秒一次、sweepEngine ~30 秒一次，失败时它们一样在消耗账号信任分，"请求是代码发的不是我发的"不是借口。为此 `poller.js` 已内置连续 3 次失败自动熔断（`MAX_CONSECUTIVE_ERRORS`），熔断后只能排查原因、重启服务或走一次人工验证恢复，不要绕过它。
 - 如果确实需要打一次真实接口确认，最多打一次，打完之后不要在几分钟内因为“再看看”又打第二次。
 - 观察站点行为（比如记录页面/接口命名）优先用被动监听（浏览器 `page.on('response')` 之类），不要用轮询脚本反复主动请求。
 - 所有真正会碰藏宝阁的调用都要先过 `server/riskGuard.js` 预检；一旦检测到代理/机房出口/高风险信号，直接拦截，不要硬试。
@@ -90,3 +92,17 @@
 **扫货任务账号绑定**：`createSweepTask()` 记录创建时的活跃账号 id（不是动态取）。`sweepEngine.tick()` 里每个任务执行前检查 `task.accountId === getActiveAccount()?.id`，不一致直接 `continue`（不发任何请求，也不做到期判断），只在状态第一次变为"不匹配"时记一条 `account_inactive` history，避免每 30 秒刷重复日志；账号切回来时同理记一条 `account_active`。
 
 **测试隔离**：`store.js` 用的是硬编码固定路径（`data/*.json`），没有依赖注入机制，`test/accounts.test.js` 采用"记录测试前文件内容快照 → 清空测试 → 断言 → `t.after` 回滚"的模式，跑完不会污染真实账号数据。**如果要手动做端到端验证（比如真的切换账号、真的打开验证窗口），必须在独立端口上跑（`PORT=xxxx npm start`），但要注意 `store.js` 的路径不看端口——同一份代码目录起的多个进程会共享同一份 `data/*.json`，测试完必须手动清理测试期间产生的账号/扫货任务数据，不能留在真实数据文件里。**
+
+## 皮肤市场页 market-v2 + 历史最低价时序（`public/market-v2.html` + `server/marketRoutes.js` + `server/priceHistory.js`，2026-09-09）
+
+从 0 到 1 重写的市场浏览页（参考悠悠有品/网易 BUFF 那种"聚合最低价 → 点进看挂单"的两层交互），满足三个需求：实时最低价（允许延迟）、点击看某款皮肤的售卖信息、丰富条件筛选。访问 `http://127.0.0.1:4173/market`。
+
+**⚠️ 数据维度以源项目真实字段为准，不要臆造**。这个项目**没有"品质/稀有度"字段**（列表接口不返回，`variation_info` 抓包一直是空对象）——第一版原型里我按名称推断造了个假"品质"维度，已被用户纠正删除。真实可用的维度只有：分类（`kindid` 3/4）、种类级最低价 `min_price`、在售数量、区服 `server_name`（只在个体挂单上有）、上架时间 `selling_time`、排序 `order_by`（`unit_price`/`selling_time`/`recommd`）、以及**星格筛选**（`variation_unlock_num` 星级 + `variation_first~fourth`，是本项目唯一"丰富筛选"的核心维度，且列表接口不返回、启用要走实时查询）。前端筛选/排序全在缓存上做，只有星格筛选会触发真实请求。
+
+**三个只读接口**（`server/marketRoutes.js`，挂在 `/api/market`）：`/types`（聚合最低价+在售数量，读 `state.getItems()` + `itemTypeCache`）、`/items?equipType=`（个体挂单，读快照）、`/price-history?equipType=`（时序）。**全部零额外藏宝阁请求**，只读内存态/本地库。
+
+**历史最低价时序（`server/priceHistory.js`）**：数据源是 `poller.js` 每轮 `fetchAllSkins()` 本来就拿到的 `seenTypes.minPrice`——`poller.tick()` 在 `recordSeenTypes` 之后追加一行 `recordPriceHistory(seenTypes)`（try/catch 兜底，失败不打断轮询）。**这是纯追加的 hook，零新网络请求**，和 `itemTypeCache` 复用同一份种类数据的思路一致。按"种类 + 小时桶"存（同小时取更低价），30 天滚动保留。
+
+**存储后端用 `node:sqlite`（内置 `DatabaseSync`）**，不是 JSON。理由：时序数据会持续增长、要按范围查询，带索引的 SQL 表比 JSON 全量读写合适；同时它零外部依赖、无需起数据库服务器，仍然符合项目"本地、单进程、无基础设施"的定位（这一点是相对 `store.js` 的 JSON 方案的**有意分叉**，不是要把 `store.js` 也迁走）。`node:sqlite` 目前是 experimental，import 时会打一条 `ExperimentalWarning`——`priceHistory.js` 里做了**只过滤这一条警告**的处理（import 前后临时替换 `process.emitWarning`，其余警告照常）。**因此 `package.json` 声明了 `engines.node >= 22.5.0`**（`DatabaseSync` 的最低可用版本），低于这个版本启动会报错。DB 文件落在 `data/priceHistory.db`（`data/` 已在 `.gitignore`，不提交）。
+
+**测试隔离**：`priceHistory.js` 导出 `_resetCacheForTest()`，把模块切到全新的 `:memory:` 库，每个用例从干净状态开始、**完全不碰磁盘**（`test/priceHistory.test.js` 覆盖分桶/跨桶/null 跳过/30 天清理/种类名更新）。

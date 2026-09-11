@@ -106,6 +106,17 @@ code{font-family:ui-monospace,Menlo,monospace;font-size:.72rem;background:var(--
 @keyframes shimmer{0%{background-position:100% 0}100%{background-position:-100% 0}}
 @keyframes fadeIn{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:translateY(0)}}
 
+/* 趋势图 */
+.chart-wrap{position:relative;width:100%;height:120px}
+.chart-wrap svg{width:100%;height:100%;overflow:visible}
+.spark{position:relative;width:100%;height:34px;margin-top:.35rem}
+.spark svg{width:100%;height:100%;overflow:visible}
+.chart-tip{position:absolute;pointer-events:none;background:var(--surface-3);border:1px solid var(--line-2);
+  border-radius:.4rem;padding:.25rem .5rem;font-size:.72rem;color:var(--ink-100);white-space:nowrap;
+  transform:translate(-50%,-120%);opacity:0;transition:opacity .12s}
+.up{color:var(--accent-rose)}
+.down{color:var(--accent-green)}
+
 .sort-select{background:var(--surface);border:1px solid var(--line);border-radius:.55rem;color:var(--ink-200);
   font-size:.82rem;padding:.4rem .7rem;cursor:pointer}
 .sort-select:focus{outline:none;border-color:var(--accent-blue)}
@@ -257,6 +268,21 @@ code{font-family:ui-monospace,Menlo,monospace;font-size:.72rem;background:var(--
     <span id="drawer-close" class="ghost-btn text-lg leading-none">✕</span>
   </div>
 
+  <!-- 历史最低价趋势 -->
+  <div class="px-6 py-4 border-b" style="border-color:var(--line)">
+    <div class="flex items-center justify-between mb-2">
+      <p class="text-xs" style="color:var(--ink-500)">历史最低价趋势</p>
+      <div class="flex items-center gap-3">
+        <span id="chart-range" class="text-xs" style="color:var(--ink-400)">近 30 天</span>
+        <span id="chart-delta" class="text-xs"></span>
+      </div>
+    </div>
+    <div id="chart-wrap" class="chart-wrap"></div>
+    <div id="chart-empty" class="hidden text-xs text-center py-6" style="color:var(--ink-500)">
+      暂无历史数据（轮询累计一段时间后自动生成）
+    </div>
+  </div>
+
   <div class="px-6 py-3 border-b flex items-center justify-between" style="border-color:var(--line)">
     <p class="text-xs" style="color:var(--ink-500)">当前售卖信息</p>
     <select id="d-sort" class="sort-select">
@@ -304,6 +330,20 @@ const MOCK_TYPES = [
 ];
 
 const MOCK_SERVERS = ['官方一区','官方二区','跨区三','电信一区','网通二区'];
+
+// mock 历史最低价：造一条 30 天、按天的随机游走曲线，围绕当前最低价波动，
+// 只在后端 /api/market/price-history 拉不到时用于演示趋势图交互。
+function mockHistory(type){
+  const base = type.minPrice || 500;
+  const pts = [];
+  let v = base * (1.2 + Math.random()*0.3);
+  const now = Date.now();
+  for(let d=29; d>=0; d--){
+    v = Math.max(base*0.85, v * (0.97 + Math.random()*0.06));
+    pts.push({ t: now - d*24*3600_000, min: Math.round(d===0 ? base : v) });
+  }
+  return { equipType: type.equipType, points: pts };
+}
 
 function mockItems(type){
   const n = type.onSaleCount || 0;
@@ -408,6 +448,32 @@ async function loadItems(type){
   }
 }
 
+async function loadHistory(type){
+  try{
+    const res = await fetch(`/api/market/price-history?equipType=${encodeURIComponent(type.equipType)}`);
+    if(!res.ok) throw new Error('no endpoint');
+    const data = await res.json();
+    if(!data.points || !data.points.length) throw new Error('empty');
+    return data.points;
+  }catch{
+    return mockHistory(type).points;
+  }
+}
+
+// 纯 SVG 折线图（不引第三方库，保持离线可用）。points: [{t,min}]
+function sparklinePath(points, w, h, pad=0){
+  if(points.length < 2) return { line:'', area:'', min:null, max:null };
+  const xs = points.map(p=>p.t), ys = points.map(p=>p.min);
+  const minX=Math.min(...xs), maxX=Math.max(...xs), minY=Math.min(...ys), maxY=Math.max(...ys);
+  const spanX=maxX-minX||1, spanY=maxY-minY||1;
+  const X=t=> pad + (t-minX)/spanX*(w-2*pad);
+  const Y=v=> pad + (1-(v-minY)/spanY)*(h-2*pad);
+  const pts = points.map(p=>`${X(p.t).toFixed(1)},${Y(p.min).toFixed(1)}`);
+  const line = 'M'+pts.join(' L');
+  const area = `${line} L${X(maxX).toFixed(1)},${(h-pad).toFixed(1)} L${X(minX).toFixed(1)},${(h-pad).toFixed(1)} Z`;
+  return { line, area, min:minY, max:maxY, X, Y };
+}
+
 // ---------- 筛选 + 排序 ----------
 function applyFilters(){
   let list = S.types.slice();
@@ -454,7 +520,27 @@ function typeCard(t){
     <div class="flex items-end justify-between mt-auto pt-1">
       ${price}${count}
     </div>
+    <div class="spark" data-spark="${t.equipType}"></div>
   </div>`;
+}
+
+// 卡片迷你 sparkline：网格渲染完后异步填充，避免阻塞首屏。
+// 逐张卡片顺序拉历史（真实模式读本地缓存、无网络请求；mock 模式纯本地生成）。
+async function fillSparklines(){
+  for(const el of document.querySelectorAll('.spark')){
+    const t = S.types.find(x=>x.equipType === el.dataset.spark);
+    if(!t || t.minPrice==null) continue;
+    const pts = await loadHistory(t);
+    if(pts.length < 2) continue;
+    const w=200,h=34;
+    const s = sparklinePath(pts, w, h, 2);
+    const trendDown = pts[pts.length-1].min <= pts[0].min;
+    const color = trendDown ? 'var(--accent-green)' : 'var(--accent-rose)';
+    el.innerHTML = `<svg viewBox="0 0 ${w} ${h}" preserveAspectRatio="none">
+      <path d="${s.area}" fill="${color}" opacity="0.10"/>
+      <path d="${s.line}" fill="none" stroke="${color}" stroke-width="1.5"/>
+    </svg>`;
+  }
 }
 
 function renderGrid(){
@@ -465,6 +551,7 @@ function renderGrid(){
   }
   $('empty').classList.add('hidden');
   $('grid').innerHTML = S.filtered.map(typeCard).join('');
+  fillSparklines();
 }
 
 // ---------- 抽屉：某款皮肤的售卖信息 ----------
@@ -480,8 +567,11 @@ async function openDrawer(equipType){
   $('d-count').textContent = t.onSaleCount!=null?`在售 ${t.onSaleCount} 件`:'—';
   $('d-thumb').src = t.img || '';
   $('d-list').innerHTML = `<div class="p-4 space-y-2">${'<div class="skeleton h-14"></div>'.repeat(4)}</div>`;
+  $('chart-wrap').innerHTML = `<div class="skeleton" style="width:100%;height:100%"></div>`;
+  $('chart-empty').classList.add('hidden');
   $('d-server-filter').innerHTML = '';
   drawerServer = 'all';
+  loadHistory(t).then(renderChart);
   drawerItems = await loadItems(t);
   renderServerFilter();
   renderDrawerList();
@@ -521,6 +611,63 @@ function renderDrawerList(){
     </div>`).join('');
 }
 function closeDrawer(){ $('mask').classList.remove('open'); $('drawer').classList.remove('open'); }
+
+// 抽屉里的完整趋势图（SVG 折线 + 网格线 + hover 提示）
+let chartPoints = [];
+function renderChart(points){
+  chartPoints = points || [];
+  const wrap = $('chart-wrap');
+  if(chartPoints.length < 2){
+    wrap.innerHTML=''; $('chart-empty').classList.remove('hidden');
+    $('chart-delta').textContent='';
+    return;
+  }
+  $('chart-empty').classList.add('hidden');
+  const w=480,h=120,pad=6;
+  const s = sparklinePath(chartPoints, w, h, pad);
+  const first=chartPoints[0].min, last=chartPoints[chartPoints.length-1].min;
+  const pct = first ? ((last-first)/first*100) : 0;
+  const down = last <= first;
+  const color = down ? 'var(--accent-green)' : 'var(--accent-rose)';
+  $('chart-delta').innerHTML = `<span class="${down?'down':'up'}">${down?'▼':'▲'} ${Math.abs(pct).toFixed(1)}% · 区间 ¥${fmt(s.min)}–${fmt(s.max)}</span>`;
+  // 3 条水平参考线
+  const grid = [0.25,0.5,0.75].map(f=>{
+    const y=(pad+(h-2*pad)*f).toFixed(1);
+    return `<line x1="${pad}" y1="${y}" x2="${w-pad}" y2="${y}" stroke="var(--line)" stroke-width="1"/>`;
+  }).join('');
+  wrap.innerHTML = `
+    <svg viewBox="0 0 ${w} ${h}" preserveAspectRatio="none">
+      ${grid}
+      <path d="${s.area}" fill="${color}" opacity="0.12"/>
+      <path d="${s.line}" fill="none" stroke="${color}" stroke-width="2"/>
+      <circle id="chart-cursor" r="3" fill="${color}" style="opacity:0"/>
+    </svg>
+    <div class="chart-tip" id="chart-tip"></div>`;
+  wrap._geom = { w, h, pad, s };
+}
+// hover 联动
+$('chart-wrap').addEventListener('mousemove',(e)=>{
+  const wrap=$('chart-wrap'); if(!wrap._geom || chartPoints.length<2) return;
+  const rect=wrap.getBoundingClientRect();
+  const ratio=Math.max(0,Math.min(1,(e.clientX-rect.left)/rect.width));
+  const idx=Math.round(ratio*(chartPoints.length-1));
+  const p=chartPoints[idx]; if(!p) return;
+  const {s}=wrap._geom;
+  const cx=s.X(p.t), cy=s.Y(p.min);
+  const cursor=document.getElementById('chart-cursor');
+  const tip=document.getElementById('chart-tip');
+  if(cursor){ cursor.setAttribute('cx',cx); cursor.setAttribute('cy',cy); cursor.style.opacity=1; }
+  if(tip){
+    tip.style.left=(ratio*rect.width)+'px';
+    tip.style.top=(cy/wrap._geom.h*rect.height)+'px';
+    tip.innerHTML=`¥${fmt(p.min)}<br><span style="color:var(--ink-500)">${new Date(p.t).toLocaleDateString('zh-CN',{month:'numeric',day:'numeric'})}</span>`;
+    tip.style.opacity=1;
+  }
+});
+$('chart-wrap').addEventListener('mouseleave',()=>{
+  const c=document.getElementById('chart-cursor'); const t=document.getElementById('chart-tip');
+  if(c)c.style.opacity=0; if(t)t.style.opacity=0;
+});
 
 // ---------- 状态栏 ----------
 async function pollStatus(){

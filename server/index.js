@@ -11,6 +11,7 @@ import { startSweepEngine } from './admin/sweepEngine.js';
 import accountRouter from './admin/accountRoutes.js';
 import { ensureDefaultAccount, getActiveAccount } from './admin/accounts.js';
 import { summarizeRisk, formatRiskBlock } from './riskGuard.js';
+import marketRouter from './marketRoutes.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -37,9 +38,13 @@ app.get('/sweep', (req, res) => {
 app.get('/accounts', (req, res) => {
   res.sendFile(path.join(__dirname, '..', 'public', 'accounts.html'));
 });
+app.get('/market', (req, res) => {
+  res.sendFile(path.join(__dirname, '..', 'public', 'market-v2.html'));
+});
 app.use('/api/admin', adminRouter);
 app.use('/api/admin/sweep-tasks', sweepRouter);
 app.use('/api/admin/accounts', accountRouter);
+app.use('/api/market', marketRouter);
 
 app.get('/api/items', (req, res) => {
   res.json(getItems());

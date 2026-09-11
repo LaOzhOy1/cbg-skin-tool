@@ -10,6 +10,10 @@
 
 如果你需要的是 7x24 无人值守自动抢购+自动支付，这个工具不支持，也不建议这么做——很可能违反藏宝阁使用条款并导致账号被限制。
 
+## 环境要求
+
+- **Node.js ≥ 22.5.0**（皮肤市场页的历史最低价时序用了 Node 内置的 `node:sqlite`，低于这个版本启动会报错；`package.json` 的 `engines` 已声明）。
+
 ## 安装
 
 ```bash
@@ -75,6 +79,16 @@ npm start
 ```
 
 终端会打印本地地址（默认 `http://127.0.0.1:4173`），用浏览器打开即可看到监控界面。
+
+启动后可访问的页面：
+
+| 页面 | 地址 | 用途 |
+| --- | --- | --- |
+| 监控面板 | `/` | 原始在售商品卡片列表 |
+| **皮肤市场** | `/market` | 新版市场浏览页：种类聚合最低价网格 + 迷你趋势线，点卡片看某款皮肤的全部在售挂单、区服筛选、历史最低价趋势图 |
+| 账号管理 | `/accounts` | 多账号管理、切换、单独验证 |
+| 需求管理后台 | `/admin` | AI 编排需求（实验性） |
+| 扫货任务 | `/sweep` | 蹲价自动下单模板（实验性） |
 
 ### 3. 页面里的验证提醒
 
@@ -164,16 +178,20 @@ cbg-skin-tool/
     state.js        # 内存态：商品快照、轮询状态、验证流程状态
     cookieJar.js      # 读取 storageState.json 拼 Cookie 头
     cbgClient.js       # 纯 HTTP 版接口调用，识别 CAPTCHA_AUTH / AUTO_LOGIN / MOBILE_AUTH
-    poller.js           # 定时轮询循环（默认 20 秒 ±20% 随机抖动）
+    poller.js           # 定时轮询循环（默认 20 秒 ±20% 随机抖动，连续失败 3 次自动熔断暂停）
     loginFlow.js          # 打开可见浏览器，等待人工登录/过验证码，保存登录态（按账号区分）
+    marketRoutes.js        # /api/market/* 只读接口：types(聚合最低价) / items(挂单) / price-history(时序)
+    priceHistory.js         # 历史最低价时序存储（node:sqlite，按种类+小时桶，零额外请求，数据源是 poller 的 seenTypes）
+    itemTypeCache.js         # 种类缩略图/最低价 7 天滚动缓存
     admin/                  # 需求管理后台：状态机、任务队列、能力注册表、DeepSeek 客户端、扫货引擎、账号管理
       accounts.js              # 账号 CRUD + getActiveAccount()/switchActiveAccount()/ensureDefaultAccount()
       accountRoutes.js          # /api/admin/accounts 路由
     sweepClient.js           # 扫货任务下单相关的 HTTP 调用（下单能力已接入真实调用，买家角色来自账号对象）
   public/
-    index.html            # 页面结构：左侧导航、商品卡片网格、右上状态面板、验证弹窗
-    app.js                 # 前端逻辑：轮询状态/数据、渲染卡片、验证弹窗交互
+    index.html            # 监控面板：左侧导航、商品卡片网格、右上状态面板、验证弹窗
+    app.js                 # 监控面板前端逻辑：轮询状态/数据、渲染卡片、验证弹窗交互
     styles.css              # 莫兰迪暗色配色、磨砂玻璃卡片、悬浮动画等自定义样式
+    market-v2.html           # 皮肤市场页(/market)：种类聚合网格+sparkline、售卖信息抽屉、趋势图、丰富筛选(单文件，含内联 CSS/JS)
     admin.html / admin.js / admin.css  # 需求管理后台页面
     sweep.html / sweep.js               # 扫货任务模板表单页面
     accounts.html / accounts.js          # 账号管理页面
